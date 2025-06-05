@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link'; // Add this import
 import { sampleTokens, Token } from '../../listings/tokenData';
 
 interface ExtendedToken extends Token {
@@ -24,20 +25,15 @@ interface ExtendedToken extends Token {
 }
 
 export default function TokenDetailPage() {
-  // Use the useParams hook instead of receiving params as props
   const params = useParams();
   const id = params.id as string;
-
   const [token, setToken] = useState<ExtendedToken | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    // Find the token with the matching ID - now using id from useParams
     const foundToken = sampleTokens.find((t) => t.id === id);
-
     if (foundToken) {
-      // Rest of your code remains the same
       const extendedToken: ExtendedToken = {
         ...foundToken,
         tgeDetails: {
@@ -122,7 +118,6 @@ export default function TokenDetailPage() {
               className='w-full h-full object-cover'
             />
           </div>
-
           <div className='absolute -bottom-12 left-8'>
             <div className='bg-gray-700 p-2 rounded-xl border-4 border-gray-800'>
               <Image
@@ -283,7 +278,7 @@ export default function TokenDetailPage() {
                     fill='currentColor'
                     viewBox='0 0 24 24'
                   >
-                    <path d='M14.82 4.26a10.14 10.14 0 0 0-.53 1.1 14.66 14.66 0 0 0-4.58 0 10.14 10.14 0 0 0-.53-1.1 16 16 0 0 0-4.13 1.3 17.33 17.33 0 0 0-3 11.59 16.6 16.6 0 0 0 5.07 2.59A12.89 12.89 0 0 0 8.23 18a9.65 9.65 0 0 1-1.71-.83 3.39 3.39 0 0 0 .42-.33 11.66 11.66 0 0 0 10.12 0q.21.18.42.33a10.84 10.84 0 0 1-1.71.84 12.41 12.41 0 0 0 1.08 1.78 16.44 16.44 0 0 0 5.06-2.59 17.22 17.22 0 0 0-3-11.59 16.09 16.09 0 0 0-4.09-1.35zM8.68 14.81a1.94 1.94 0 0 1-1.8-2 1.93 1.93 0 0 1 1.8-2 1.93 1.93 0 0 1 1.8 2 1.93 1.93 0 0 1-1.8 2zm6.64 0a1.94 1.94 0 0 1-1.8-2 1.93 1.93 0 0 1 1.8-2 1.92 1.92 0 0 1 1.8 2 1.92 1.92 0 0 1-1.8 2z' />
+                    <path d='M14.82 4.26a10.14 10.14 0 0 0-.53 1.1 14.66 14.66 0 0 0-4.58 0 10.14 10.14 0 0 0-.53-1.1 16 16 0 0 0-4.13 1.3 17.33 17.33 0 0 0-3 11.59 16.6 16.6 0 0 0 5.07 2.59A12.89 12.89 0 0 0 8.23 18a9.65 9.65 0 0 1-1.71-.83 3.39 3.39 0 0 0 .42-.33 11.66 11.66 0 0 0 10.12 0q.21.18.42.33a10.84 10.84 0 0 1-1.71.84 12.41 12.41 0 0 0 1.08 1.78 16.44 16.44 0 0 0 5.59-2.59 17.22 17.22 0 0 0-3-11.59 16.09 16.09 0 0 0-4.2-1.35zM8.68 14.81a1.94 1.94 0 0 1-1.8-2 1.93 1.93 0 0 1 1.8-2 1.93 1.93 0 0 1 1.8 2 1.93 1.93 0 0 1-1.8 2zm6.64 0a1.94 1.94 0 0 1-1.8-2 1.93 1.93 0 0 1 1.8-2 1.92 1.92 0 0 1 1.8 2 1.92 1.92 0 0 1-1.8 2z' />
                   </svg>
                   <span>Discord</span>
                 </a>
@@ -352,10 +347,16 @@ export default function TokenDetailPage() {
             )}
           </div>
 
+          {/* Action Buttons */}
           <div className='flex flex-wrap gap-4 max-w-xl'>
             <button className='flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-md transition-colors font-medium'>
               Manage Token
             </button>
+            <Link href={`/dashboard/airdrop/${id}`} className='flex-1'>
+              <button className='w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-md transition-colors font-medium'>
+                Create Airdrop
+              </button>
+            </Link>
             <button className='flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-md transition-colors font-medium'>
               View on Explorer
             </button>

@@ -18,19 +18,68 @@ import { Label } from '../../../../../../components/ui/label';
 import { Alert, AlertDescription } from '../../../../../../components/ui/alert';
 import { ArrowLeft, Coins } from 'lucide-react';
 import DashBoardLayout from '../../DashboardLayout';
-import MerkleDistributorABI from '../../../../../lib/contracts/MerkleDistributor.json';
 
-// Add MerkleDistributor ABI with merkleRoot function
-const ExtendedMerkleDistributorABI = [
-  ...MerkleDistributorABI,
+// Constants
+// Types
+type RecipientFile = {
+  id: string;
+  name: string;
+  count: number;
+  merkleRoot: string;
+  distributorAddress?: string;
+  recipients: { address: string; amount: string; proof?: string[] }[];
+  proofs: { [address: string]: string[] };
+};
+
+// Distributor contract ABI - Updated to match your specification
+const DISTRIBUTOR_ABI = [
   {
-    inputs: [],
-    name: 'merkleRoot',
-    outputs: [{ internalType: 'bytes32', name: '', type: 'bytes32' }],
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'merkleProof', type: 'bytes32[]' },
+    ],
+    name: 'claim',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '', type: 'address' }],
+    name: 'hasClaimed',
+    outputs: [{ name: '', type: 'bool' }],
     stateMutability: 'view',
     type: 'function',
   },
-];
+  {
+    inputs: [],
+    name: 'startTime',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'token',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'dropAmount',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'merkleRoot',
+    outputs: [{ name: '', type: 'bytes32' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
 
 export default function ClaimPage() {
   const { address, isConnected } = useAccount();
@@ -48,13 +97,13 @@ export default function ClaimPage() {
     merkleRoot: string;
   } | null>(null);
 
-  // Add fetchDistributorDetails function
+  // Fetch distributor details function
   const fetchDistributorDetails = async (contractAddress: string) => {
     if (!ethers.isAddress(contractAddress)) return;
 
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
-      const contract = new ethers.Contract(contractAddress, ExtendedMerkleDistributorABI, provider);
+      const contract = new ethers.Contract(contractAddress, DISTRIBUTOR_ABI, provider);
 
       const [tokenAddress, dropAmount, startTime, merkleRoot] = await Promise.all([
         contract.token(),
@@ -75,7 +124,7 @@ export default function ClaimPage() {
     }
   };
 
-  // Add handleAddressChange function
+  // Handle address change function
   const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const address = e.target.value;
     setDistributorAddress(address);
@@ -118,12 +167,13 @@ export default function ClaimPage() {
       if (!storedFiles)
         throw new Error('No recipient data found. Please upload recipients CSV first.');
 
-      const files = JSON.parse(storedFiles);
+      const files: RecipientFile[] = JSON.parse(storedFiles);
       if (!files.length)
         throw new Error('No recipient data found. Please upload recipients CSV first.');
 
-      // Find user's proof in saved files
-      let userProof = null;
+      // Find user's data in saved files
+      let userProof: string[] | null = null;
+      let userAmount = '0';
       const userAddress = address.toLowerCase();
 
       // Search through each file for the user's address and proof
@@ -131,18 +181,31 @@ export default function ClaimPage() {
         // Check if proofs exist directly in the file structure
         if (file.proofs && file.proofs[userAddress]) {
           userProof = file.proofs[userAddress];
+          // Find the amount from recipients
+          const recipient = file.recipients.find(
+            (r) => r.address && r.address.toLowerCase() === userAddress
+          );
+          if (recipient) {
+            userAmount = recipient.amount;
+          }
           break;
         }
 
         // Check if we need to search through recipients
         if (file.recipients) {
           const recipient = file.recipients.find(
-            (r: { address: string; proof: string[] }) =>
-              r.address && r.address.toLowerCase() === userAddress && r.proof,
+            (r: { address: string; amount: string; proof?: string[] }) =>
+              r.address && r.address.toLowerCase() === userAddress
           );
 
-          if (recipient && recipient.proof) {
-            userProof = recipient.proof;
+          if (recipient) {
+            userAmount = recipient.amount;
+            // If proof is stored with recipient
+            if (recipient.proof) {
+              userProof = recipient.proof;
+            } else if (file.proofs && file.proofs[userAddress]) {
+              userProof = file.proofs[userAddress];
+            }
             break;
           }
         }
@@ -152,7 +215,7 @@ export default function ClaimPage() {
 
       // Initialize contract
       setStatusMessage('Connecting to contract...');
-      const contract = new ethers.Contract(distributorAddress, MerkleDistributorABI, signer);
+      const contract = new ethers.Contract(distributorAddress, DISTRIBUTOR_ABI, signer);
 
       // Check if already claimed
       const claimed = await contract.hasClaimed(address);
@@ -166,7 +229,7 @@ export default function ClaimPage() {
         throw new Error(`Airdrop not started. Starts at ${startDate.toLocaleString()}`);
       }
 
-      // ✅ Check token balance of contract
+      // Check token balance of contract
       setStatusMessage('Checking contract balance...');
 
       const tokenAddress = await contract.token();
@@ -182,29 +245,32 @@ export default function ClaimPage() {
       console.log('📦 Raw contract token balance:', contractBalance.toString());
       console.log('📦 Formatted contract token balance:', ethers.formatUnits(contractBalance, 18));
 
-      const dropAmount = await contract.dropAmount();
-      console.log('🎯 Raw drop amount:', dropAmount.toString());
-      console.log('🎯 Formatted drop amount:', ethers.formatUnits(dropAmount, 18));
+      // Convert user amount to wei
+      const userAmountWei = ethers.parseUnits(userAmount, 18);
+      console.log('🎯 User claim amount (wei):', userAmountWei.toString());
+      console.log('🎯 User claim amount (formatted):', userAmount);
 
-      // 🔐 Compare and throw error if not enough tokens
-      if (contractBalance < dropAmount) {
+      // Compare and throw error if not enough tokens
+      if (contractBalance < userAmountWei) {
         throw new Error("Contract doesn't have enough tokens to distribute.");
       }
 
       // Execute claim transaction
       setStatusMessage('Sending claim transaction...');
+      console.log('User Address:', address);
+      console.log('User Amount (wei):', userAmountWei.toString());
       console.log('User Proof:', userProof);
 
       // Estimate gas to catch potential errors before sending
       try {
-        await contract.claim.estimateGas(userProof);
+        await contract.claim.estimateGas(address, userAmountWei, userProof);
       } catch (estimateErr) {
         console.error('Gas estimation failed:', estimateErr);
         throw new Error('Transaction is likely to fail. Your proof may be invalid.');
       }
 
-      // Send transaction
-      const tx = await contract.claim(userProof, {
+      // Send transaction with correct parameters: account, amount, merkleProof
+      const tx = await contract.claim(address, userAmountWei, userProof, {
         gasLimit: 300000, // Set explicit gas limit as fallback
       });
 
@@ -212,7 +278,7 @@ export default function ClaimPage() {
       await tx.wait();
 
       localStorage.setItem('lastDistributorAddress', distributorAddress);
-      setSuccess('Airdrop claimed successfully! Transaction: ' + tx.hash);
+      setSuccess(`Airdrop claimed successfully! You received ${userAmount} tokens. Transaction: ${tx.hash}`);
     } catch (err) {
       console.error('Claim Error:', err);
 
@@ -268,7 +334,7 @@ export default function ClaimPage() {
               <CardHeader>
                 <CardTitle className='text-purple-100'>Claim Your Tokens</CardTitle>
                 <CardDescription className='text-purple-100/70'>
-                  Enter your airdrop distributor address and claim
+                  Enter your airdrop distributor address and claim your tokens
                 </CardDescription>
               </CardHeader>
               <CardContent className='space-y-4'>
@@ -278,49 +344,65 @@ export default function ClaimPage() {
                     id='distributorAddress'
                     placeholder='0x...'
                     value={distributorAddress}
-                    onChange={handleAddressChange} // Use handleAddressChange
+                    onChange={handleAddressChange}
                     className='mt-1.5 bg-purple-800/40 border-purple-500/20 focus:border-purple-500'
                   />
                 </div>
-                {/* Add airdrop details display */}
+                
+                {/* Airdrop details display */}
                 {airdropInfo && (
-                  <div className='space-y-2'>
-                    <p>
-                      <strong>Token Address:</strong> {airdropInfo.tokenAddress}
-                    </p>
-                    <p>
-                      <strong>Drop Amount:</strong> {airdropInfo.dropAmount} tokens
-                    </p>
-                    <p>
-                      <strong>Start Time:</strong> {airdropInfo.startTime}
-                    </p>
-                    <p>
-                      <strong>Merkle Root:</strong> {airdropInfo.merkleRoot}
-                    </p>
+                  <div className='space-y-2 p-4 bg-purple-800/20 rounded-lg border border-purple-500/20'>
+                    <h3 className='text-lg font-semibold text-purple-100'>Airdrop Details</h3>
+                    <div className='space-y-1 text-sm'>
+                      <p>
+                        <strong>Token Address:</strong> 
+                        <span className='font-mono text-xs ml-2'>{airdropInfo.tokenAddress}</span>
+                      </p>
+                      <p>
+                        <strong>Drop Amount:</strong> {airdropInfo.dropAmount} tokens per claim
+                      </p>
+                      <p>
+                        <strong>Start Time:</strong> {airdropInfo.startTime}
+                      </p>
+                      <p>
+                        <strong>Merkle Root:</strong> 
+                        <span className='font-mono text-xs ml-2'>{airdropInfo.merkleRoot}</span>
+                      </p>
+                    </div>
                   </div>
                 )}
+
                 {statusMessage && (
                   <Alert className='bg-blue-500/10 border-blue-500/20'>
                     <AlertDescription>{statusMessage}</AlertDescription>
                   </Alert>
                 )}
+                
                 {error && (
                   <Alert className='bg-red-500/10 border-red-500/20'>
-                    <AlertDescription>{error}</AlertDescription>
+                    <AlertDescription className='text-red-200'>{error}</AlertDescription>
                   </Alert>
                 )}
+                
                 {success && (
                   <Alert className='bg-green-500/10 border-green-500/20'>
-                    <AlertDescription>{success}</AlertDescription>
+                    <AlertDescription className='text-green-200'>{success}</AlertDescription>
                   </Alert>
                 )}
+                
                 <Button
-                  className='w-full bg-purple-500 hover:bg-purple-600 text-black'
+                  className='w-full bg-purple-500 hover:bg-purple-600 text-black font-semibold'
                   onClick={handleClaim}
                   disabled={!distributorAddress || loading || !isConnected}
                 >
                   {loading ? 'Claiming...' : 'Claim Airdrop'}
                 </Button>
+                
+                {!isConnected && (
+                  <p className='text-center text-purple-300 text-sm'>
+                    Please connect your wallet to claim tokens
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>

@@ -56,6 +56,7 @@ const DashboardSidebar = () => {
     tokensRemaining: number;
     expiry: number;
   } | null>(null);
+  const [selectedTokenId, setSelectedTokenId] = useState<string>('');
 
   // Fetch subscription status
   const { data: subData } = useReadContract({
@@ -65,6 +66,14 @@ const DashboardSidebar = () => {
     args: [address],
     query: { enabled: isConnected && !!address, retry: 3, retryDelay: 1000 },
   });
+
+  // Load selected token from local storage
+  useEffect(() => {
+    const storedTokenId = localStorage.getItem('selectedTokenId');
+    if (storedTokenId) {
+      setSelectedTokenId(storedTokenId);
+    }
+  }, []);
 
   // Process subscription data
   useEffect(() => {
@@ -97,6 +106,7 @@ const DashboardSidebar = () => {
       disconnect();
       if (typeof window !== 'undefined') {
         localStorage.removeItem('walletconnect');
+        localStorage.removeItem('selectedTokenId');
       }
       window.location.href = '/';
     } catch (error) {
@@ -122,6 +132,12 @@ const DashboardSidebar = () => {
       return;
     }
     setIsAirdropOpen(!isAirdropOpen);
+  };
+
+  const handleDistributeClick = () => {
+    if (!selectedTokenId) {
+      alert('Please select a token first from the dashboard.');
+    }
   };
 
   return (
@@ -254,14 +270,15 @@ const DashboardSidebar = () => {
                     active={currentPath === '/dashboard/token-creator/airdrop-listing/upload'}
                   />
                   <SidebarLink
-                    href='/dashboard/token-creator/airdrop-listing/distribute'
+                    href={selectedTokenId ? `/dashboard/token-creator/airdrop-listing/distribute/${selectedTokenId}` : '#'}
                     icon={
                       <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
                         <path d='M11 17a1 1 0 001.447.894l4-2A1 1 0 0017 15V9.236a1 1 0 00-1.447-.894 l-4 2a1 1 0 00-.553.894V17zM15.211 6.276a1 1 0 000-1.788l-4.764-2.382a1 1 0 00-.894 0L4.789 4.488a1 1 0 000 1.788l4.764 2.382a1 1 0 00.894 0l4.764-2.382zM4.447 8.342A1 1 0 003 9.236V15a1 1 0 00.553.894l4 2A1 1 0 009 17v-5.764a1 1 0 00-.553-.894l-4-2z' />
                       </svg>
                     }
                     text='Distribute Airdrop'
-                    active={currentPath === '/dashboard/token-creator/airdrop-listing/distribute'}
+                    active={currentPath === `/dashboard/token-creator/airdrop-listing/distribute/${selectedTokenId}`}
+                    onClick={!selectedTokenId ? handleDistributeClick : undefined}
                   />
                   <SidebarLink
                     href='/dashboard/token-creator/airdrop-listing/claim'

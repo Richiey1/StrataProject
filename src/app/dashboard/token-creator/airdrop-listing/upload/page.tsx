@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { useReadContract, useReadContracts } from 'wagmi';
+import { Abi } from 'viem';
 import { Button } from '../../../../../../components/ui/button';
 import {
   Card,
@@ -23,9 +25,12 @@ import { ArrowLeft, Upload, FileText, Trash2, Plus, Coins } from 'lucide-react';
 import { Badge } from '../../../../../../components/ui/badge';
 import { ScrollArea } from '../../../../../../components/ui/scroll-area';
 import { Alert, AlertDescription } from '../../../../../../components/ui/alert';
-import DashBoardLayout from '../../DashboardLayout';
-// import WalletConnect from "@/components/WalletConnect";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../../../../components/ui/select';
+import { Label } from '../../../../../../components/ui/label';
+import DashBoardLayout from '../../../../dashboard/token-creator/DashboardLayout';
+import StrataForgeFactoryABI from '../../../../components/ABIs/StrataForgeFactoryABI.json';
 import { parseCSV, createMerkleTree, Recipient } from '../../../../../lib/merkle';
+import { useWallet } from '../../../../../contexts/WalletContext';
 
 type RecipientFile = {
   id: string;
@@ -38,10 +43,87 @@ type RecipientFile = {
   proofs: { [address: string]: string[] };
 };
 
+
+const FACTORY_CONTRACT_ADDRESS = '0x59F42c3eEcf829b34d8Ca846Dfc83D3cDC105C3F' as const;
+
 export default function UploadPage() {
   const [files, setFiles] = useState<RecipientFile[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [selectedTokenId, setSelectedTokenId] = useState<string>('');
+  const [tokens, setTokens] = useState<
+    { id: number; name: string; symbol: string; address: string; type: string }[]
+  >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { address, isConnected } = useWallet();
+
+  // Fetch total token count
+  const { data: totalTokens } = useReadContract({
+    address: FACTORY_CONTRACT_ADDRESS,
+    abi: StrataForgeFactoryABI as Abi,
+    functionName: 'getTotalTokenCount',
+    query: { enabled: isConnected },
+  });
+
+  // Create array of token read calls
+  const tokenCalls = totalTokens
+    ? Array.from({ length: Number(totalTokens) }, (_, i) => ({
+        address: FACTORY_CONTRACT_ADDRESS,
+        abi: StrataForgeFactoryABI as Abi,
+        functionName: 'getTokenById',
+        args: [i + 1],
+      }))
+    : [];
+
+  // Fetch all tokens
+  const { data: tokenData } = useReadContracts({
+    contracts: tokenCalls,
+    query: { enabled: tokenCalls.length > 0 },
+  });
+
+  // Process tokens
+  useEffect(() => {
+    if (tokenData && tokenData.length > 0 && address) {
+      const userTokens = tokenData
+        .map((result, index) => {
+          if (result.status === 'success' && result.result) {
+            const token = result.result as { name: string; symbol: string; tokenAddress: string; creator: string };
+            if (
+              token.name &&
+              token.symbol &&
+              token.tokenAddress &&
+              token.creator &&
+              token.creator.toLowerCase() === address.toLowerCase()
+            ) {
+              let type = 'erc20';
+              if (token.name.toLowerCase().includes('nft')) type = 'erc721';
+              else if (token.name.toLowerCase().includes('meme') || token.name.toLowerCase().includes('doge'))
+                type = 'meme';
+              else if (token.name.toLowerCase().includes('usd') || token.name.toLowerCase().includes('stable'))
+                type = 'stable';
+              return {
+                id: index + 1,
+                name: token.name,
+                symbol: token.symbol,
+                address: token.tokenAddress,
+                type,
+              };
+            }
+            return null;
+          }
+          return null;
+        })
+        .filter((token): token is NonNullable<typeof token> => token !== null);
+      setTokens(userTokens);
+    }
+  }, [tokenData, address]);
+
+  // Load recipient files from local storage
+  useEffect(() => {
+    const storedFiles = localStorage.getItem('recipientFiles');
+    if (storedFiles) {
+      setFiles(JSON.parse(storedFiles));
+    }
+  }, []);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -119,20 +201,19 @@ export default function UploadPage() {
 
   return (
     <DashBoardLayout>
-      <div className='bg-#201726 text-purple-100'>
+      <div className='bg-[#201726] text-purple-100'>
         <header className='border-b border-purple-500/20 p-4'>
           <div className='container flex items-center justify-between'>
             <div className='flex items-center gap-2'>
               <Coins className='h-6 w-6' />
               <span className='text-xl font-bold'>LaunchPad</span>
             </div>
-            {/* <WalletConnect /> */}
           </div>
         </header>
 
         <main className='container py-8'>
           <div className='mb-6 flex items-center'>
-            <Link href='/dashboard/airdrop-listing'>
+            <Link href='/dashboard/token-creator'>
               <Button
                 variant='ghost'
                 className='text-purple-100 hover:bg-purple-500/10 hover:text-purple-200'
@@ -217,11 +298,29 @@ export default function UploadPage() {
                     <Plus className='mr-2 h-4 w-4' />
                     Add File
                   </Button>
-                  <Link href='/dashboard/airdrop-listing/distribute'>
-                    <Button className='bg-purple-500 hover:bg-purple-600 text-black'>
-                      Continue to Distribution
-                    </Button>
-                  </Link>
+                  <div className='flex flex-col gap-2'>
+                    <Label htmlFor='tokenSelect'>Select Token</Label>
+                    <Select value={selectedTokenId} onValueChange={setSelectedTokenId}>
+                      <SelectTrigger id='tokenSelect' className='bg-[#2A1F36] border-purple-500/20 focus:border-purple-500 text-white'>
+                        <SelectValue placeholder='Select a token' />
+                      </SelectTrigger>
+                      <SelectContent className='bg-[#2A1F36] border-purple-500/20 text-white'>
+                        {tokens.map((token) => (
+                          <SelectItem key={token.id} value={token.id.toString()}>
+                            {token.name} ({token.symbol})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Link href={selectedTokenId ? `/dashboard/token-creator/airdrop-listing/distribute/${selectedTokenId}` : '#'}>
+                      <Button
+                        className='bg-purple-500 hover:bg-purple-600 text-black'
+                        disabled={!selectedTokenId}
+                      >
+                        Continue to Distribution
+                      </Button>
+                    </Link>
+                  </div>
                 </CardFooter>
               </Card>
             </div>
