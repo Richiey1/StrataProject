@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAccount, useReadContract, useWriteContract, useChainId } from 'wagmi';
+import { useAccount, useReadContract, useWriteContract, useChainId, useWaitForTransactionReceipt } from 'wagmi';
 import { isAddress, parseUnits } from 'viem';
 import { Button } from '../../../../../../../components/ui/button';
 import {
@@ -62,6 +62,9 @@ interface AirdropInfo {
   dropAmount: bigint;
 }
 
+// Transaction states
+type TransactionState = 'idle' | 'preparing' | 'approving' | 'approved' | 'creating' | 'success' | 'error';
+
 const FACTORY_CONTRACT_ADDRESS = '0x59F42c3eEcf829b34d8Ca846Dfc83D3cDC105C3F' as const;
 const BASE_SEPOLIA_CHAIN_ID = 84532;
 
@@ -84,7 +87,23 @@ export default function CreateAirdropPage() {
   const [mintStatus, setMintStatus] = useState('');
   const [mintLoading, setMintLoading] = useState(false);
   const [airdropIndex, setAirdropIndex] = useState<bigint | null>(null);
+  const [transactionState, setTransactionState] = useState<TransactionState>('idle');
+  const [approveHash, setApproveHash] = useState<`0x${string}` | null>(null);
+  const [createHash, setCreateHash] = useState<`0x${string}` | null>(null);
+
   const { writeContract, isPending, error: writeError } = useWriteContract();
+
+  // Wait for approve transaction
+  const { isSuccess: approveSuccess, isError: approveError } = useWaitForTransactionReceipt({
+    hash: approveHash ?? undefined,
+    query: { enabled: !!approveHash }
+  });
+
+  // Wait for create transaction
+  const { isSuccess: createSuccess, isError: createError } = useWaitForTransactionReceipt({
+    hash: createHash ?? undefined,
+    query: { enabled: !!createHash }
+  });
 
   // ABIs for different token types
   const tokenABIs: Record<string, typeof StrataForgeERC20ImplementationABI> = {
@@ -207,18 +226,51 @@ export default function CreateAirdropPage() {
     }
   }, []);
 
+  // Handle transaction state changes
+  useEffect(() => {
+    if (approveSuccess && transactionState === 'approving') {
+      setTransactionState('approved');
+      console.log('Approval successful, proceeding to create airdrop...');
+    }
+  }, [approveSuccess, transactionState]);
+
+  useEffect(() => {
+    if (createSuccess && transactionState === 'creating') {
+      setTransactionState('success');
+      console.log('Airdrop created successfully!');
+      // Set airdrop index to fetch distributor address
+      setAirdropIndex(airdropCount ? BigInt(Number(airdropCount)) : BigInt(0));
+    }
+  }, [createSuccess, transactionState, airdropCount]);
+
+  useEffect(() => {
+    if ((approveError || createError) && transactionState !== 'idle') {
+      setTransactionState('error');
+      setError('Transaction failed');
+    }
+  }, [approveError, createError, transactionState]);
+
   // Handle errors
   useEffect(() => {
     if (!isValidTokenId) {
       setError('Invalid token ID format. Please use a numeric ID (e.g., 1).');
-    } else if (writeError) {
+    } else if (writeError && transactionState === 'idle') {
       setError(writeError.message || 'Transaction failed');
     } else if (!isConnected) {
       setError('Please connect your wallet to Base Sepolia.');
     } else if (chainId !== BASE_SEPOLIA_CHAIN_ID) {
       setError('Please switch to Base Sepolia network.');
     }
-  }, [isValidTokenId, writeError, isConnected, chainId]);
+  }, [isValidTokenId, writeError, isConnected, chainId, transactionState]);
+
+  // Reset transaction state when needed
+  const resetTransactionState = () => {
+    setTransactionState('idle');
+    setApproveHash(null);
+    setCreateHash(null);
+    setError('');
+    setLoading(false);
+  };
 
   // Approve collateral for stablecoin mint
   const handleApproveCollateral = async (collateralToken: string, amount: bigint) => {
@@ -288,6 +340,7 @@ export default function CreateAirdropPage() {
 
       setMintStatus(`Successfully minted ${mintAmount} ${tokenDetails.symbol} to ${distributorAddress}`);
     } catch (err) {
+      console.error('Minting error:', err);
       setError(err instanceof Error ? err.message : 'Minting failed');
       setMintStatus('');
     } finally {
@@ -295,7 +348,7 @@ export default function CreateAirdropPage() {
     }
   };
 
-  // Create airdrop
+  // Create airdrop with proper transaction handling
   const handleDistribute = async () => {
     if (!isConnected) {
       setError('Please connect your wallet!');
@@ -322,10 +375,12 @@ export default function CreateAirdropPage() {
       return;
     }
 
+    // Reset previous state
+    resetTransactionState();
+
     try {
       setLoading(true);
-      setError('');
-      setDistributorAddress('');
+      setTransactionState('preparing');
 
       const allRecipients = files.flatMap((file) => file.recipients);
       const totalRecipients = allRecipients.length;
@@ -336,30 +391,112 @@ export default function CreateAirdropPage() {
         ? Math.floor(new Date(scheduleDate).getTime() / 1000)
         : Math.floor(Date.now() / 1000);
 
-      // Approve token transfer
-      await writeContract({
+      console.log('Airdrop parameters:', {
+        tokenAddress,
+        merkleRoot,
+        dropAmount: dropAmount.toString(),
+        totalRecipients,
+        startTime,
+        totalDropAmount: totalDropAmount.toString()
+      });
+
+      // Step 1: Approve token transfer
+      setTransactionState('approving');
+      console.log('Step 1: Approving tokens...');
+      
+      const result = await writeContract({
         address: tokenAddress as `0x${string}`,
         abi: tokenABIs[tokenType],
         functionName: 'approve',
         args: [FACTORY_CONTRACT_ADDRESS, totalDropAmount],
         account: account as `0x${string}`,
       });
+      // If writeContract returns void, do not setApproveHash; otherwise, set the hash if available
+      if (typeof result === 'string') {
+        setApproveHash(result as `0x${string}`);
+        console.log('Approval transaction hash:', result);
+      } else {
+        setApproveHash(null);
+        console.log('Approval transaction sent.');
+      }
 
-      // Create airdrop
-      await writeContract({
-        address: FACTORY_CONTRACT_ADDRESS,
-        abi: StrataForgeFactoryABI,
-        functionName: 'createAirdrop',
-        args: [tokenAddress, merkleRoot, dropAmount, BigInt(totalRecipients), BigInt(startTime)],
-        account: account as `0x${string}`,
-      });
-
-      // Set airdrop index to fetch distributor address
-      setAirdropIndex(airdropCount ? BigInt(Number(airdropCount)) : BigInt(0));
     } catch (err) {
+      console.error('Airdrop creation error:', err);
+      setTransactionState('error');
       setError(err instanceof Error ? err.message : 'Airdrop creation failed');
-    } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle creating airdrop after approval is confirmed
+  useEffect(() => {
+    if (transactionState === 'approved' && tokenAddress && tokenType && tokenDetails && files.length > 0) {
+      const createAirdrop = async () => {
+        try {
+          setTransactionState('creating');
+          console.log('Step 2: Creating airdrop...');
+
+          const allRecipients = files.flatMap((file) => file.recipients);
+          const totalRecipients = allRecipients.length;
+          const { merkleRoot } = createMerkleTree(allRecipients);
+          const dropAmount = parseUnits(tokenAmount, tokenDetails.decimals);
+          const startTime = scheduleDate
+            ? Math.floor(new Date(scheduleDate).getTime() / 1000)
+            : Math.floor(Date.now() / 1000);
+
+          const createHash = await writeContract({
+            address: FACTORY_CONTRACT_ADDRESS,
+            abi: StrataForgeFactoryABI,
+            functionName: 'createAirdrop',
+            args: [tokenAddress, merkleRoot, dropAmount, BigInt(totalRecipients), BigInt(startTime)],
+            account: account as `0x${string}`,
+          });
+
+          if (typeof createHash === 'string') {
+            setCreateHash(createHash as `0x${string}`);
+            console.log('Airdrop creation transaction hash:', createHash);
+          } else {
+            setCreateHash(null);
+            console.log('Airdrop creation transaction sent.');
+          }
+
+        } catch (err) {
+          console.error('Create airdrop error:', err);
+          setTransactionState('error');
+          setError(err instanceof Error ? err.message : 'Failed to create airdrop');
+          setLoading(false);
+        }
+      };
+
+      createAirdrop();
+    }
+  }, [transactionState, tokenAddress, tokenType, tokenDetails, files, tokenAmount, scheduleDate, writeContract, account]);
+
+  // Handle final success state
+  useEffect(() => {
+    if (transactionState === 'success') {
+      setLoading(false);
+      setError('');
+    }
+  }, [transactionState]);
+
+  // Get transaction status message
+  const getTransactionStatusMessage = () => {
+    switch (transactionState) {
+      case 'preparing':
+        return 'Preparing transaction...';
+      case 'approving':
+        return 'Approving token transfer...';
+      case 'approved':
+        return 'Approval confirmed, creating airdrop...';
+      case 'creating':
+        return 'Creating airdrop...';
+      case 'success':
+        return 'Airdrop created successfully!';
+      case 'error':
+        return 'Transaction failed';
+      default:
+        return '';
     }
   };
 
@@ -390,7 +527,7 @@ export default function CreateAirdropPage() {
     );
   }
 
-  if (error || !tokenType || !tokenDetails || !tokenAddress) {
+  if (error && transactionState === 'idle' && (!tokenType || !tokenDetails || !tokenAddress)) {
     return (
       <DashBoardLayout>
         <div className="min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36] p-4 md:p-8 relative">
@@ -421,19 +558,39 @@ export default function CreateAirdropPage() {
                 Back to Token Management
               </Button>
             </Link>
-            <h1 className="ml-4 text-2xl font-bold text-white">Create Airdrop for {tokenDetails.name}</h1>
+            <h1 className="ml-4 text-2xl font-bold text-white">
+              Create Airdrop for {tokenDetails?.name || 'Token'}
+            </h1>
           </div>
 
-          {error && (
+          {error && transactionState !== 'success' && (
             <Alert className="mb-4 bg-red-500/10 border-red-500/20">
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription className="text-red-300">{error}</AlertDescription>
             </Alert>
           )}
 
-          {distributorAddress && (
+          {transactionState !== 'idle' && getTransactionStatusMessage() && (
+            <Alert className="mb-4 bg-blue-500/10 border-blue-500/20">
+              <AlertDescription className="text-blue-300">
+                {getTransactionStatusMessage()}
+                {(transactionState === 'approving' || transactionState === 'creating') && (
+                  <div className="mt-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                      <div 
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                        style={{ width: transactionState === 'approving' ? '50%' : '100%' }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {distributorAddress && transactionState === 'success' && (
             <Alert className="mb-4 bg-green-500/10 border-green-500/20">
-              <AlertDescription>
-                Airdrop created! Distributor Address: <code>{distributorAddress}</code>
+              <AlertDescription className="text-green-300">
+                Airdrop created successfully! Distributor Address: <code className="bg-green-500/20 px-2 py-1 rounded">{distributorAddress}</code>
               </AlertDescription>
             </Alert>
           )}
@@ -446,7 +603,9 @@ export default function CreateAirdropPage() {
                   : 'bg-blue-500/10 border-blue-500/20'
               }`}
             >
-              <AlertDescription>{mintStatus}</AlertDescription>
+              <AlertDescription className={mintStatus.includes('Failed') ? 'text-red-300' : 'text-blue-300'}>
+                {mintStatus}
+              </AlertDescription>
             </Alert>
           )}
 
@@ -456,9 +615,9 @@ export default function CreateAirdropPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Create New Airdrop</CardTitle>
-                      <CardDescription>
-                        Configure airdrop parameters for {tokenDetails.name} ({tokenDetails.symbol})
+                      <CardTitle className="text-white">Create New Airdrop</CardTitle>
+                      <CardDescription className="text-gray-300">
+                        Configure airdrop parameters for {tokenDetails?.name || 'Token'} ({tokenDetails?.symbol || 'SYM'})
                       </CardDescription>
                     </div>
                     <Coins className="h-8 w-8 text-purple-400" />
@@ -467,7 +626,7 @@ export default function CreateAirdropPage() {
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div>
-                      <Label htmlFor="tokenAmount">Token Amount (per recipient)</Label>
+                      <Label htmlFor="tokenAmount" className="text-white">Token Amount (per recipient)</Label>
                       <Input
                         id="tokenAmount"
                         type="number"
@@ -475,11 +634,12 @@ export default function CreateAirdropPage() {
                         value={tokenAmount}
                         onChange={(e) => setTokenAmount(e.target.value)}
                         className="mt-1.5 bg-[#2A1F36] border-purple-500/20 focus:border-purple-500 text-white"
+                        disabled={loading}
                       />
                     </div>
 
                     <div>
-                      <Label>Recipients</Label>
+                      <Label className="text-white">Recipients</Label>
                       <div className="flex flex-wrap gap-2 mt-1.5">
                         {files.map((file) => (
                           <Badge
@@ -502,8 +662,8 @@ export default function CreateAirdropPage() {
                     </div>
 
                     <div>
-                      <Label htmlFor="distributionMethod">Distribution Method</Label>
-                      <Select value={distributionMethod} onValueChange={setDistributionMethod}>
+                      <Label htmlFor="distributionMethod" className="text-white">Distribution Method</Label>
+                      <Select value={distributionMethod} onValueChange={setDistributionMethod} disabled={loading}>
                         <SelectTrigger className="mt-1.5 bg-[#2A1F36] border-purple-500/20 focus:border-purple-500 text-white">
                           <SelectValue placeholder="Select distribution method" />
                         </SelectTrigger>
@@ -515,18 +675,20 @@ export default function CreateAirdropPage() {
                     </div>
 
                     <div>
-                      <Label htmlFor="scheduleDate">Schedule</Label>
+                      <Label htmlFor="scheduleDate" className="text-white">Schedule (Optional)</Label>
                       <div className="flex mt-1.5">
                         <Input
                           id="scheduleDate"
-                          type="date"
+                          type="datetime-local"
                           value={scheduleDate}
                           onChange={(e) => setScheduleDate(e.target.value)}
                           className="bg-[#2A1F36] border-purple-500/20 focus:border-purple-500 text-white"
+                          disabled={loading}
                         />
                         <Button
                           variant="outline"
                           className="ml-2 border-purple-500 text-purple-100 hover:bg-purple-500/10"
+                          disabled={loading}
                         >
                           <Calendar className="h-4 w-4" />
                         </Button>
@@ -537,10 +699,10 @@ export default function CreateAirdropPage() {
                   <Separator className="bg-purple-500/20" />
 
                   <div>
-                    <Label htmlFor="mintAmount">Mint Tokens to Distributor</Label>
+                    <Label htmlFor="mintAmount" className="text-white">Mint Tokens to Distributor</Label>
                     <div className="space-y-4 mt-1.5">
                       <div>
-                        <Label htmlFor="mintRecipient">Recipient (Distributor Address)</Label>
+                        <Label htmlFor="mintRecipient" className="text-white">Recipient (Distributor Address)</Label>
                         <Input
                           id="mintRecipient"
                           value={distributorAddress || 'Create airdrop to set recipient'}
@@ -549,7 +711,7 @@ export default function CreateAirdropPage() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="mintAmount">Mint Amount</Label>
+                        <Label htmlFor="mintAmount" className="text-white">Mint Amount</Label>
                         <Input
                           id="mintAmount"
                           type="number"
@@ -557,63 +719,61 @@ export default function CreateAirdropPage() {
                           value={mintAmount}
                           onChange={(e) => setMintAmount(e.target.value)}
                           className="mt-1.5 bg-[#2A1F36] border-purple-500/20 focus:border-purple-500 text-white"
+                          disabled={mintLoading}
                         />
                       </div>
                       <Button
                         className="w-full bg-gradient-to-r from-purple-500 to-blue-600 text-white hover:opacity-90"
                         onClick={handleMint}
-                        disabled={!distributorAddress || !mintAmount || mintLoading || !isConnected}
+                        disabled={mintLoading || !distributorAddress || transactionState !== 'idle'}
                       >
                         {mintLoading ? 'Minting...' : 'Mint Tokens'}
                       </Button>
                     </div>
                   </div>
                 </CardContent>
+                <CardFooter>
+                  <Button
+                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:opacity-90"
+                    onClick={handleDistribute}
+                    disabled={loading || isPending || transactionState !== 'idle'}
+                  >
+                    {loading || isPending ? 'Creating Airdrop...' : 'Create Airdrop'}
+                  </Button>
+                </CardFooter>
               </Card>
             </div>
 
             <div>
-              <Card className="bg-[#1E1425]/80 border-purple-500/20">
+              <Card className="bg-[#2A1F36]/80 border-purple-500/20">
                 <CardHeader>
-                  <CardTitle>Airdrop Summary</CardTitle>
+                  <CardTitle className="text-white">Token Information</CardTitle>
+                  <CardDescription className="text-purple-100/70">
+                    Details of the selected token
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="space-y-4">
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label>Total Recipients:</Label>
-                      <span>{files.reduce((sum, file) => sum + file.count, 0)}</span>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label>Total Amount:</Label>
-                      <span>
-                        {(Number(tokenAmount) * files.reduce((sum, file) => sum + file.count, 0)).toFixed(2)}{' '}
-                        {tokenDetails.symbol}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label>Distribution Type:</Label>
-                      <Badge variant="outline" className="border-purple-500/50 text-purple-100">
-                        {distributionMethod === 'equal' ? 'Equal Split' : 'Custom'}
-                      </Badge>
-                    </div>
+                    <p className="text-sm text-purple-100/70">Name</p>
+                    <p className="font-semibold text-white">{tokenDetails?.name || 'Loading...'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-purple-100/70">Symbol</p>
+                    <p className="font-semibold text-white">{tokenDetails?.symbol || 'Loading...'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-purple-100/70">Type</p>
+                    <Badge variant="outline" className="border-purple-500 text-purple-100">
+                      {tokenType ? tokenType.toUpperCase() : 'Loading...'}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-sm text-purple-100/70">Token Address</p>
+                    <p className="font-semibold text-white break-all">
+                      {tokenAddress ? `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}` : 'Loading...'}
+                    </p>
                   </div>
                 </CardContent>
-                <CardFooter>
-                  <Button
-                    className="w-full bg-gradient-to-r from-purple-500 to-blue-600 text-white hover:opacity-90"
-                    onClick={handleDistribute}
-                    disabled={
-                      !tokenAmount ||
-                      !tokenAddress ||
-                      files.length === 0 ||
-                      loading ||
-                      !isConnected ||
-                      isPending
-                    }
-                  >
-                    {loading || isPending ? 'Distributing...' : 'Create Airdrop'}
-                  </Button>
-                </CardFooter>
               </Card>
             </div>
           </div>
