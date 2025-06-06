@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useAccount, useReadContract, useWriteContract, useChainId, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useChainId, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { isAddress, parseUnits } from 'viem';
 import { Button } from '../../../../../../../components/ui/button';
 import {
@@ -20,13 +20,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertDescription } from '../../../../../../../components/ui/alert';
 import { ArrowLeft, Coins, Calendar } from 'lucide-react';
 import { Badge } from '../../../../../../../components/ui/badge';
-import { Separator } from '../../../../../../../components/ui/separator';
 import DashBoardLayout from '../../../DashboardLayout';
 import StrataForgeFactoryABI from '../../../../../components/ABIs/StrataForgeFactoryABI.json';
-import StrataForgeERC20ImplementationABI from '../../../../../components/ABIs/StrataForgeERC20ImplementationABI.json';
-import StrataForgeMemecoinImplementationABI from '../../../../../components/ABIs/StrataForgeMemecoinImplementationABI.json';
-import StrataForgeStablecoinImplementationABI from '../../../../../components/ABIs/StrataForgeStablecoinImplementationABI.json';
 import { createMerkleTree, Recipient } from '../../../../../../lib/merkle';
+import { ethers } from 'ethers';
 
 type RecipientFile = {
   id: string;
@@ -37,16 +34,6 @@ type RecipientFile = {
   proofs: { [address: string]: string[] };
 };
 
-interface TokenInfo {
-  tokenAddress: string;
-  tokenType: bigint;
-  name: string;
-  symbol: string;
-  initialSupply: bigint;
-  timestamp: bigint;
-  creator: string;
-}
-
 interface TokenDetails {
   name: string;
   symbol: string;
@@ -54,28 +41,62 @@ interface TokenDetails {
 }
 
 interface AirdropInfo {
-  distributorAddress: string;
+  distributor: string;
   tokenAddress: string;
   creator: string;
   startTime: bigint;
   totalRecipients: bigint;
   dropAmount: bigint;
+  tokenType: number;
+  reserved: number;
 }
 
 // Transaction states
 type TransactionState = 'idle' | 'preparing' | 'approving' | 'approved' | 'creating' | 'success' | 'error';
 
-const FACTORY_CONTRACT_ADDRESS = '0x59F42c3eEcf829b34d8Ca846Dfc83D3cDC105C3F' as const;
+const FACTORY_CONTRACT_ADDRESS = '0x3A1aCc78cc5ec3a320236f470319f60727De6Ed4' as const;
 const BASE_SEPOLIA_CHAIN_ID = 84532;
 
+// Minimal ERC20 ABI
+const ERC20_ABI = [
+  {
+    inputs: [],
+    name: 'name',
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'symbol',
+    outputs: [{ name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'decimals',
+    outputs: [{ name: '', type: 'uint8' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'approve',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+] as const;
+
 export default function CreateAirdropPage() {
-  const { id: tokenId } = useParams<{ id: string }>();
-  const router = useRouter();
+  const { id: tokenAddress } = useParams<{ id: string }>();
   const { address: account, isConnected } = useAccount();
   const chainId = useChainId();
   const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
-  const [tokenAddress, setTokenAddress] = useState<string | null>(null);
-  const [tokenType, setTokenType] = useState<'erc20' | 'meme' | 'stable' | null>(null);
   const [tokenAmount, setTokenAmount] = useState('');
   const [distributionMethod, setDistributionMethod] = useState('equal');
   const [scheduleDate, setScheduleDate] = useState('');
@@ -83,103 +104,58 @@ export default function CreateAirdropPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [distributorAddress, setDistributorAddress] = useState('');
-  const [mintAmount, setMintAmount] = useState('');
-  const [mintStatus, setMintStatus] = useState('');
-  const [mintLoading, setMintLoading] = useState(false);
   const [airdropIndex, setAirdropIndex] = useState<bigint | null>(null);
   const [transactionState, setTransactionState] = useState<TransactionState>('idle');
   const [approveHash, setApproveHash] = useState<`0x${string}` | null>(null);
   const [createHash, setCreateHash] = useState<`0x${string}` | null>(null);
 
-  const { writeContract, isPending, error: writeError } = useWriteContract();
+  const { writeContract, isPending } = useWriteContract();
 
   // Wait for approve transaction
   const { isSuccess: approveSuccess, isError: approveError } = useWaitForTransactionReceipt({
     hash: approveHash ?? undefined,
-    query: { enabled: !!approveHash }
+    query: { enabled: !!approveHash },
   });
 
   // Wait for create transaction
   const { isSuccess: createSuccess, isError: createError } = useWaitForTransactionReceipt({
     hash: createHash ?? undefined,
-    query: { enabled: !!createHash }
+    query: { enabled: !!createHash },
   });
-
-  // ABIs for different token types
-  const tokenABIs: Record<string, typeof StrataForgeERC20ImplementationABI> = {
-    erc20: StrataForgeERC20ImplementationABI,
-    meme: StrataForgeMemecoinImplementationABI,
-    stable: StrataForgeStablecoinImplementationABI,
-  };
-
-  // Validate tokenId
-  const isValidTokenId = tokenId && !isNaN(Number(tokenId)) && Number(tokenId) >= 0;
-
-  // Redirect to dashboard if tokenId is invalid
-  useEffect(() => {
-    if (!isValidTokenId) {
-      router.push('/dashboard/token-creator');
-    }
-  }, [isValidTokenId, router]);
-
-  // Fetch TokenInfo from factory
-  const { data: tokenInfo, error: tokenInfoError, isLoading: tokenInfoLoading } = useReadContract({
-    address: FACTORY_CONTRACT_ADDRESS,
-    abi: StrataForgeFactoryABI,
-    functionName: 'getTokenById',
-    args: isValidTokenId ? [BigInt(tokenId)] : undefined,
-    query: { enabled: !!isValidTokenId },
-  });
-
-  // Extract tokenAddress and type
-  useEffect(() => {
-    console.log('tokenInfo:', tokenInfo, 'tokenInfoError:', tokenInfoError);
-    if (tokenInfo) {
-      const { tokenAddress, tokenType } = tokenInfo as TokenInfo;
-      setTokenAddress(tokenAddress);
-      const typeMap: { [key: number]: 'erc20' | 'meme' | 'stable' } = {
-        0: 'erc20',
-        3: 'meme',
-        4: 'stable',
-      };
-      const newTokenType = typeMap[Number(tokenType)] || null;
-      setTokenType(newTokenType);
-      if (!newTokenType) {
-        setError(`Unsupported token type: ${Number(tokenType)}. Only ERC20, Memecoin, or Stablecoin are supported.`);
-      }
-    } else if (tokenInfoError) {
-      setError('Token not found for this ID. Please create a token first.');
-    }
-  }, [tokenInfo, tokenInfoError]);
 
   // Fetch token details
-  const { data: name } = useReadContract({
-    address: tokenAddress as `0x${string}`,
-    abi: tokenType ? tokenABIs[tokenType] : tokenABIs.erc20,
-    functionName: 'name',
-    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) },
-  });
+  useEffect(() => {
+    const fetchTokenDetails = async () => {
+      if (tokenAddress && isAddress(tokenAddress)) {
+        try {
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+          const [name, symbol, decimals] = await Promise.all([
+            tokenContract.name(),
+            tokenContract.symbol(),
+            tokenContract.decimals(),
+          ]);
+          setTokenDetails({
+            name: name || 'Unknown Token',
+            symbol: symbol || 'UNKNOWN',
+            decimals: Number(decimals) || 18,
+          });
+          setError('');
+        } catch (err) {
+          console.error('Error fetching token details:', err);
+          setError('Invalid token address or not an ERC20 token.');
+          setTokenDetails(null);
+        }
+      } else {
+        setError('Invalid token address.');
+        setTokenDetails(null);
+      }
+    };
 
-  const { data: symbol } = useReadContract({
-    address: tokenAddress as `0x${string}`,
-    abi: tokenType ? tokenABIs[tokenType] : tokenABIs.erc20,
-    functionName: 'symbol',
-    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) },
-  });
-
-  const { data: decimals } = useReadContract({
-    address: tokenAddress as `0x${string}`,
-    abi: tokenType ? tokenABIs[tokenType] : tokenABIs.erc20,
-    functionName: 'decimals',
-    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) },
-  });
-
-  const { data: collateralToken } = useReadContract({
-    address: tokenAddress as `0x${string}`,
-    abi: tokenABIs.stable,
-    functionName: 'collateralToken',
-    query: { enabled: !!tokenAddress && isAddress(tokenAddress) && tokenType === 'stable' },
-  });
+    if (chainId === BASE_SEPOLIA_CHAIN_ID) {
+      fetchTokenDetails();
+    }
+  }, [tokenAddress, chainId]);
 
   // Fetch airdrop count to track new airdrop
   const { data: airdropCount } = useReadContract({
@@ -198,23 +174,12 @@ export default function CreateAirdropPage() {
     query: { enabled: !!airdropIndex },
   });
 
-  useEffect(() => {
-    console.log('name:', name, 'symbol:', symbol, 'decimals:', decimals);
-    if (name && symbol && decimals !== undefined) {
-      setTokenDetails({ name: name as string, symbol: symbol as string, decimals: Number(decimals) });
-    } else if (tokenAddress && tokenType) {
-      if (!name || !symbol || decimals === undefined) {
-        setError('Failed to fetch token details (name, symbol, or decimals).');
-      }
-    }
-  }, [name, symbol, decimals, tokenAddress, tokenType]);
-
   // Set distributor address after airdrop creation
   useEffect(() => {
     if (airdropInfo && airdropIndex) {
-      const { distributorAddress } = airdropInfo as AirdropInfo;
-      setDistributorAddress(distributorAddress);
-      localStorage.setItem('lastDistributorAddress', distributorAddress);
+      const { distributor } = airdropInfo as AirdropInfo;
+      setDistributorAddress(distributor);
+      localStorage.setItem('lastDistributorAddress', distributor);
     }
   }, [airdropInfo, airdropIndex]);
 
@@ -238,7 +203,6 @@ export default function CreateAirdropPage() {
     if (createSuccess && transactionState === 'creating') {
       setTransactionState('success');
       console.log('Airdrop created successfully!');
-      // Set airdrop index to fetch distributor address
       setAirdropIndex(airdropCount ? BigInt(Number(airdropCount)) : BigInt(0));
     }
   }, [createSuccess, transactionState, airdropCount]);
@@ -252,103 +216,18 @@ export default function CreateAirdropPage() {
 
   // Handle errors
   useEffect(() => {
-    if (!isValidTokenId) {
-      setError('Invalid token ID format. Please use a numeric ID (e.g., 1).');
-    } else if (writeError && transactionState === 'idle') {
-      setError(writeError.message || 'Transaction failed');
-    } else if (!isConnected) {
+    if (!isConnected) {
       setError('Please connect your wallet to Base Sepolia.');
     } else if (chainId !== BASE_SEPOLIA_CHAIN_ID) {
       setError('Please switch to Base Sepolia network.');
+    } else if (!tokenAddress || !isAddress(tokenAddress)) {
+      setError('Invalid token address.');
     }
-  }, [isValidTokenId, writeError, isConnected, chainId, transactionState]);
+  }, [isConnected, chainId, tokenAddress]);
 
-  // Reset transaction state when needed
-  const resetTransactionState = () => {
-    setTransactionState('idle');
-    setApproveHash(null);
-    setCreateHash(null);
-    setError('');
-    setLoading(false);
-  };
+  // Reset transaction state
 
-  // Approve collateral for stablecoin mint
-  const handleApproveCollateral = async (collateralToken: string, amount: bigint) => {
-    try {
-      await writeContract({
-        address: collateralToken as `0x${string}`,
-        abi: StrataForgeERC20ImplementationABI,
-        functionName: 'approve',
-        args: [tokenAddress, amount],
-        account: account as `0x${string}`,
-      });
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to approve collateral');
-      return false;
-    }
-  };
-
-  // Mint tokens to distributor
-  const handleMint = async () => {
-    if (!isConnected) {
-      setError('Please connect your wallet!');
-      return;
-    }
-    if (!tokenAddress || !isAddress(tokenAddress)) {
-      setError('Invalid token address');
-      return;
-    }
-    if (!distributorAddress || !isAddress(distributorAddress)) {
-      setError('No valid distributor address available. Create an airdrop first.');
-      return;
-    }
-    if (!mintAmount || isNaN(Number(mintAmount)) || Number(mintAmount) <= 0) {
-      setError('Enter a valid mint amount.');
-      return;
-    }
-    if (chainId !== BASE_SEPOLIA_CHAIN_ID) {
-      setError('Please connect to Base Sepolia network');
-      return;
-    }
-    if (!tokenType || !tokenDetails) {
-      setError('Token details not loaded');
-      return;
-    }
-
-    try {
-      setMintLoading(true);
-      setError('');
-      setMintStatus('Minting tokens to distributor...');
-
-      const amountToMint = parseUnits(mintAmount, tokenDetails.decimals);
-
-      // For stablecoin, approve collateral first
-      if (tokenType === 'stable' && collateralToken) {
-        const approved = await handleApproveCollateral(collateralToken as string, amountToMint);
-        if (!approved) return;
-      }
-
-      // Mint tokens
-      await writeContract({
-        address: tokenAddress as `0x${string}`,
-        abi: tokenABIs[tokenType],
-        functionName: tokenType === 'stable' ? 'mint' : 'mint',
-        args: tokenType === 'stable' ? [amountToMint] : [distributorAddress, amountToMint],
-        account: account as `0x${string}`,
-      });
-
-      setMintStatus(`Successfully minted ${mintAmount} ${tokenDetails.symbol} to ${distributorAddress}`);
-    } catch (err) {
-      console.error('Minting error:', err);
-      setError(err instanceof Error ? err.message : 'Minting failed');
-      setMintStatus('');
-    } finally {
-      setMintLoading(false);
-    }
-  };
-
-  // Create airdrop with proper transaction handling
+  // Create airdrop
   const handleDistribute = async () => {
     if (!isConnected) {
       setError('Please connect your wallet!');
@@ -359,7 +238,7 @@ export default function CreateAirdropPage() {
       return;
     }
     if (!tokenAddress || !isAddress(tokenAddress)) {
-      setError('Invalid token address');
+      setError('Invalid token address.');
       return;
     }
     if (!tokenAmount || isNaN(Number(tokenAmount)) || Number(tokenAmount) <= 0) {
@@ -367,16 +246,13 @@ export default function CreateAirdropPage() {
       return;
     }
     if (chainId !== BASE_SEPOLIA_CHAIN_ID) {
-      setError('Please connect to Base Sepolia network');
+      setError('Please connect to Base Sepolia network.');
       return;
     }
-    if (!tokenType || !tokenDetails) {
-      setError('Token details not loaded');
+    if (!tokenDetails) {
+      setError('Token details not loaded.');
       return;
     }
-
-    // Reset previous state
-    resetTransactionState();
 
     try {
       setLoading(true);
@@ -384,58 +260,37 @@ export default function CreateAirdropPage() {
 
       const allRecipients = files.flatMap((file) => file.recipients);
       const totalRecipients = allRecipients.length;
-      const { merkleRoot } = createMerkleTree(allRecipients);
+      createMerkleTree(allRecipients);
       const dropAmount = parseUnits(tokenAmount, tokenDetails.decimals);
       const totalDropAmount = dropAmount * BigInt(totalRecipients);
-      const startTime = scheduleDate
-        ? Math.floor(new Date(scheduleDate).getTime() / 1000)
-        : Math.floor(Date.now() / 1000);
-
-      console.log('Airdrop parameters:', {
-        tokenAddress,
-        merkleRoot,
-        dropAmount: dropAmount.toString(),
-        totalRecipients,
-        startTime,
-        totalDropAmount: totalDropAmount.toString()
-      });
 
       // Step 1: Approve token transfer
       setTransactionState('approving');
-      console.log('Step 1: Approving tokens...');
-      
-      const result = await writeContract({
+      const approveResult = await writeContract({
         address: tokenAddress as `0x${string}`,
-        abi: tokenABIs[tokenType],
+        abi: ERC20_ABI,
         functionName: 'approve',
         args: [FACTORY_CONTRACT_ADDRESS, totalDropAmount],
         account: account as `0x${string}`,
       });
-      // If writeContract returns void, do not setApproveHash; otherwise, set the hash if available
-      if (typeof result === 'string') {
-        setApproveHash(result as `0x${string}`);
-        console.log('Approval transaction hash:', result);
-      } else {
-        setApproveHash(null);
-        console.log('Approval transaction sent.');
+      if (typeof approveResult === 'string') {
+        setApproveHash(approveResult);
       }
 
     } catch (err) {
       console.error('Airdrop creation error:', err);
       setTransactionState('error');
-      setError(err instanceof Error ? err.message : 'Airdrop creation failed');
+      setError(err instanceof Error ? err.message : 'Airdrop creation failed.');
       setLoading(false);
     }
   };
 
-  // Handle creating airdrop after approval is confirmed
+  // Create airdrop after approval
   useEffect(() => {
-    if (transactionState === 'approved' && tokenAddress && tokenType && tokenDetails && files.length > 0) {
+    if (transactionState === 'approved' && tokenAddress && tokenDetails && files.length > 0) {
       const createAirdrop = async () => {
         try {
           setTransactionState('creating');
-          console.log('Step 2: Creating airdrop...');
-
           const allRecipients = files.flatMap((file) => file.recipients);
           const totalRecipients = allRecipients.length;
           const { merkleRoot } = createMerkleTree(allRecipients);
@@ -444,35 +299,28 @@ export default function CreateAirdropPage() {
             ? Math.floor(new Date(scheduleDate).getTime() / 1000)
             : Math.floor(Date.now() / 1000);
 
-          const createHash = await writeContract({
+          const createResult = await writeContract({
             address: FACTORY_CONTRACT_ADDRESS,
             abi: StrataForgeFactoryABI,
-            functionName: 'createAirdrop',
+            functionName: 'createERC20Airdrop',
             args: [tokenAddress, merkleRoot, dropAmount, BigInt(totalRecipients), BigInt(startTime)],
             account: account as `0x${string}`,
           });
-
-          if (typeof createHash === 'string') {
-            setCreateHash(createHash as `0x${string}`);
-            console.log('Airdrop creation transaction hash:', createHash);
-          } else {
-            setCreateHash(null);
-            console.log('Airdrop creation transaction sent.');
+          if (typeof createResult === 'string') {
+            setCreateHash(createResult);
           }
-
         } catch (err) {
           console.error('Create airdrop error:', err);
           setTransactionState('error');
-          setError(err instanceof Error ? err.message : 'Failed to create airdrop');
+          setError(err instanceof Error ? err.message : 'Failed to create airdrop.');
           setLoading(false);
         }
       };
-
       createAirdrop();
     }
-  }, [transactionState, tokenAddress, tokenType, tokenDetails, files, tokenAmount, scheduleDate, writeContract, account]);
+  }, [transactionState, tokenAddress, tokenDetails, files, tokenAmount, scheduleDate, writeContract, account]);
 
-  // Handle final success state
+  // Handle success
   useEffect(() => {
     if (transactionState === 'success') {
       setLoading(false);
@@ -480,65 +328,33 @@ export default function CreateAirdropPage() {
     }
   }, [transactionState]);
 
-  // Get transaction status message
+  // Status message
   const getTransactionStatusMessage = () => {
     switch (transactionState) {
-      case 'preparing':
-        return 'Preparing transaction...';
-      case 'approving':
-        return 'Approving token transfer...';
-      case 'approved':
-        return 'Approval confirmed, creating airdrop...';
-      case 'creating':
-        return 'Creating airdrop...';
-      case 'success':
-        return 'Airdrop created successfully!';
-      case 'error':
-        return 'Transaction failed';
-      default:
-        return '';
+      case 'preparing': return 'Preparing transaction...';
+      case 'approving': return 'Approving token transfer...';
+      case 'approved': return 'Approval confirmed, creating airdrop...';
+      case 'creating': return 'Creating airdrop...';
+      case 'success': return 'Airdrop created successfully!';
+      case 'error': return 'Transaction failed.';
+      default: return '';
     }
   };
 
-  if (tokenInfoLoading) {
-    return (
-      <DashBoardLayout>
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36] relative">
-          <div className="w-16 h-16 border-4 border-gray-200 border-t-purple-600 rounded-full animate-spin relative z-10"></div>
-        </div>
-      </DashBoardLayout>
-    );
-  }
-
-  if (!isValidTokenId) {
+  if (!isConnected || chainId !== BASE_SEPOLIA_CHAIN_ID || !tokenDetails) {
     return (
       <DashBoardLayout>
         <div className="min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36] p-4 md:p-8 relative">
-          <div className="bg-red-500/10 border-red-500/20 rounded-xl p-4 flex items-center space-x-3 relative z-10">
-            <p className="text-red-300 font-medium">Please select a token to create an airdrop.</p>
+          <Alert className="bg-red-500/10 border-red-500/20 rounded-xl p-4 flex items-center space-x-3 relative z-10">
+            <AlertDescription className="text-red-300 font-medium">
+              {error || 'Please connect to Base Sepolia and select a valid token.'}
+            </AlertDescription>
             <Link href="/dashboard/token-creator">
               <Button className="bg-purple-600 hover:bg-purple-700 text-white">
                 Go to Dashboard
               </Button>
             </Link>
-          </div>
-        </div>
-      </DashBoardLayout>
-    );
-  }
-
-  if (error && transactionState === 'idle' && (!tokenType || !tokenDetails || !tokenAddress)) {
-    return (
-      <DashBoardLayout>
-        <div className="min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36] p-4 md:p-8 relative">
-          <div className="bg-red-500/10 border-red-500/20 rounded-xl p-4 flex items-center space-x-3 relative z-10">
-            <p className="text-red-300 font-medium">{error || 'Failed to load token data'}</p>
-            <Link href="/dashboard/token-creator/create-tokens">
-              <Button className="bg-purple-600 hover:bg-purple-700 text-white">
-                Create a Token
-              </Button>
-            </Link>
-          </div>
+          </Alert>
         </div>
       </DashBoardLayout>
     );
@@ -549,17 +365,17 @@ export default function CreateAirdropPage() {
       <div className="relative min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36]">
         <main className="container py-8 relative z-10">
           <div className="mb-6 flex items-center">
-            <Link href={`/dashboard/tokens/${tokenId}`}>
+            <Link href="/dashboard/token-creator/airdrop-listing/upload">
               <Button
                 variant="ghost"
                 className="text-purple-100 hover:bg-purple-500/10 hover:text-purple-200"
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Token Management
+                Back to Upload
               </Button>
             </Link>
             <h1 className="ml-4 text-2xl font-bold text-white">
-              Create Airdrop for {tokenDetails?.name || 'Token'}
+              Create Airdrop for {tokenDetails.name}
             </h1>
           </div>
 
@@ -576,8 +392,8 @@ export default function CreateAirdropPage() {
                 {(transactionState === 'approving' || transactionState === 'creating') && (
                   <div className="mt-2">
                     <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                      <div 
-                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                      <div
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
                         style={{ width: transactionState === 'approving' ? '50%' : '100%' }}
                       ></div>
                     </div>
@@ -595,20 +411,6 @@ export default function CreateAirdropPage() {
             </Alert>
           )}
 
-          {mintStatus && (
-            <Alert
-              className={`mb-4 ${
-                mintStatus.includes('Failed')
-                  ? 'bg-red-500/10 border-red-500/20'
-                  : 'bg-blue-500/10 border-blue-500/20'
-              }`}
-            >
-              <AlertDescription className={mintStatus.includes('Failed') ? 'text-red-300' : 'text-blue-300'}>
-                {mintStatus}
-              </AlertDescription>
-            </Alert>
-          )}
-
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <Card className="bg-[#1E1425]/80 border-purple-500/20">
@@ -617,7 +419,7 @@ export default function CreateAirdropPage() {
                     <div>
                       <CardTitle className="text-white">Create New Airdrop</CardTitle>
                       <CardDescription className="text-gray-300">
-                        Configure airdrop parameters for {tokenDetails?.name || 'Token'} ({tokenDetails?.symbol || 'SYM'})
+                        Configure airdrop parameters for {tokenDetails.name} ({tokenDetails.symbol})
                       </CardDescription>
                     </div>
                     <Coins className="h-8 w-8 text-purple-400" />
@@ -695,42 +497,6 @@ export default function CreateAirdropPage() {
                       </div>
                     </div>
                   </div>
-
-                  <Separator className="bg-purple-500/20" />
-
-                  <div>
-                    <Label htmlFor="mintAmount" className="text-white">Mint Tokens to Distributor</Label>
-                    <div className="space-y-4 mt-1.5">
-                      <div>
-                        <Label htmlFor="mintRecipient" className="text-white">Recipient (Distributor Address)</Label>
-                        <Input
-                          id="mintRecipient"
-                          value={distributorAddress || 'Create airdrop to set recipient'}
-                          readOnly
-                          className="mt-1.5 bg-[#2A1F36] border-purple-500/20 text-white"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="mintAmount" className="text-white">Mint Amount</Label>
-                        <Input
-                          id="mintAmount"
-                          type="number"
-                          placeholder="0.0"
-                          value={mintAmount}
-                          onChange={(e) => setMintAmount(e.target.value)}
-                          className="mt-1.5 bg-[#2A1F36] border-purple-500/20 focus:border-purple-500 text-white"
-                          disabled={mintLoading}
-                        />
-                      </div>
-                      <Button
-                        className="w-full bg-gradient-to-r from-purple-500 to-blue-600 text-white hover:opacity-90"
-                        onClick={handleMint}
-                        disabled={mintLoading || !distributorAddress || transactionState !== 'idle'}
-                      >
-                        {mintLoading ? 'Minting...' : 'Mint Tokens'}
-                      </Button>
-                    </div>
-                  </div>
                 </CardContent>
                 <CardFooter>
                   <Button
@@ -764,7 +530,7 @@ export default function CreateAirdropPage() {
                   <div>
                     <p className="text-sm text-purple-100/70">Type</p>
                     <Badge variant="outline" className="border-purple-500 text-purple-100">
-                      {tokenType ? tokenType.toUpperCase() : 'Loading...'}
+                      ERC20
                     </Badge>
                   </div>
                   <div>
