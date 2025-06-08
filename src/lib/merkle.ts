@@ -1,12 +1,10 @@
 import { MerkleTree } from 'merkletreejs';
 import keccak256 from 'keccak256';
 import Papa from 'papaparse';
-//import type { ParseResult } from 'papaparse';
 import { ethers } from 'ethers';
 
 export interface Recipient {
   address: string;
-  amount?: string; // Optional but kept for future use
 }
 
 export interface RecipientWithProof extends Recipient {
@@ -19,11 +17,9 @@ export function createMerkleTree(recipients: Recipient[]): {
   proofs: { [address: string]: string[] };
   recipientsWithProof: RecipientWithProof[];
 } {
-  // Normalize and validate addresses first
   const normalizedRecipients = recipients
     .filter((recipient) => recipient.address && ethers.isAddress(recipient.address))
     .map((recipient) => ({
-      ...recipient,
       address: recipient.address.toLowerCase().trim(),
     }));
 
@@ -31,9 +27,6 @@ export function createMerkleTree(recipients: Recipient[]): {
     throw new Error('No valid addresses found in recipient list');
   }
 
-  // Hash addresses consistently with the smart contract
-  // Note: If the contract checks both address and amount, you would need to hash them together
-  // like: keccak256(ethers.solidityPacked(['address', 'uint256'], [address, amount]))
   const leaves = normalizedRecipients.map((recipient) => keccak256(recipient.address));
 
   console.log('🔍 Normalized Addresses:');
@@ -46,7 +39,6 @@ export function createMerkleTree(recipients: Recipient[]): {
     console.log(`  Leaf ${i + 1}: ${leaf.toString('hex')}`);
   });
 
-  // Create the Merkle tree with sorted pairs for consistent root
   const merkleTree = new MerkleTree(leaves, keccak256, { sortPairs: true });
   const merkleRoot = merkleTree.getHexRoot();
 
@@ -55,16 +47,13 @@ export function createMerkleTree(recipients: Recipient[]): {
   const proofs: { [address: string]: string[] } = {};
   const recipientsWithProof: RecipientWithProof[] = [];
 
-  // Generate proofs for each recipient
   normalizedRecipients.forEach((recipient) => {
     const leaf = keccak256(recipient.address);
     const proof = merkleTree.getHexProof(leaf);
     proofs[recipient.address] = proof;
 
-    console.log(`🧾 Proof for ${recipient.address}:`, proof);
-
-    // Verify proof is valid against the root
     const isValid = merkleTree.verify(proof, leaf, merkleRoot);
+    console.log(`🧾 Proof for ${recipient.address}:`, proof);
     console.log(`✅ Proof valid for ${recipient.address}?`, isValid);
 
     if (!isValid) {
@@ -72,7 +61,7 @@ export function createMerkleTree(recipients: Recipient[]): {
     }
 
     recipientsWithProof.push({
-      ...recipient,
+      address: recipient.address,
       proof,
     });
   });
@@ -85,75 +74,109 @@ export function createMerkleTree(recipients: Recipient[]): {
   };
 }
 
-/**
- * Parse a CSV file into a list of recipients
- * Expected format: CSV with 'address' column (required) and 'amount' column (optional)
- */
 export async function parseCSV(file: File): Promise<Recipient[]> {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      dynamicTyping: false, // Keep everything as strings
+      dynamicTyping: false,
+      delimitersToGuess: [',', '\t', '|', ';'],
       complete: (result) => {
         if (result.errors && result.errors.length > 0) {
-          console.error('CSV parsing errors:', result.errors);
+          console.warn('CSV parsing warnings:', result.errors);
         }
 
         const recipients: Recipient[] = [];
+        const data = result.data as Array<Record<string, unknown>>;
 
-        // Process each row
-        for (const row of result.data as Array<{ address?: string; amount?: string }>) {
-          // Skip rows with no address
-          if (!row.address) continue;
+        if (data.length === 0) {
+          reject(new Error('CSV file is empty'));
+          return;
+        }
 
-          const address = String(row.address).trim();
+        const firstRow = data[0];
+        const availableColumns = Object.keys(firstRow).map(key => key.trim().toLowerCase());
+        console.log('Available CSV columns:', availableColumns);
 
-          // Validate Ethereum address
+        const addressColumnNames = ['address', 'wallet', 'walletaddress', 'wallet_address', 'addr', 'recipient'];
+        const addressColumn = availableColumns.find(col =>
+          addressColumnNames.some(name => col.includes(name))
+        );
+
+        if (!addressColumn) {
+          reject(new Error(`No address column found. Expected one of: ${addressColumnNames.join(', ')}. Found columns: ${availableColumns.join(', ')}`));
+          return;
+        }
+
+        console.log(`Using column '${addressColumn}' for addresses`);
+
+        for (const row of data) {
+          let addressValue: string | undefined;
+
+          for (const [key, value] of Object.entries(row)) {
+            if (key.trim().toLowerCase() === addressColumn) {
+              addressValue = value as string;
+              break;
+            }
+          }
+
+          if (!addressValue) {
+            console.warn('Skipping row with no address value:', row);
+            continue;
+          }
+
+          const address = String(addressValue).trim();
+          if (!address) {
+            console.warn('Skipping row with empty address');
+            continue;
+          }
+
           if (!ethers.isAddress(address)) {
             console.warn(`Invalid address skipped: ${address}`);
             continue;
           }
 
-          recipients.push({
-            address,
-            amount: row.amount ? String(row.amount).trim() : undefined,
-          });
+          recipients.push({ address });
         }
 
-        console.log(`Parsed ${recipients.length} valid recipients from CSV`);
+        if (recipients.length === 0) {
+          reject(new Error('No valid Ethereum addresses found in CSV. Please check that your addresses are valid and in the correct format (0x...).'));
+          return;
+        }
+
+        console.log(`✅ Parsed ${recipients.length} valid recipients from CSV`);
         resolve(recipients);
       },
       error: (error) => {
         console.error('CSV parse error:', error);
-        reject(error);
+        reject(new Error(`Failed to parse CSV: ${error.message}`));
       },
     });
   });
 }
 
-/**
- * Verify if an address is eligible to claim by checking if it's in the merkle tree
- */
+// ✅ FIXED: Proper verification using the real Merkle Tree
 export function verifyAddressEligibility(
   address: string,
   recipientsWithProof: RecipientWithProof[],
+  merkleTree: MerkleTree,
   merkleRoot: string,
 ): { eligible: boolean; proof?: string[] } {
-  // Normalize address
   const normalizedAddress = address.toLowerCase().trim();
-
-  // Find recipient
-  const recipient = recipientsWithProof.find((r) => r.address.toLowerCase() === normalizedAddress);
+  const recipient = recipientsWithProof.find((r) => r.address === normalizedAddress);
 
   if (!recipient) {
     return { eligible: false };
   }
 
-  // Verify proof
   const leaf = keccak256(normalizedAddress);
-  const merkleTree = new MerkleTree([], keccak256, { sortPairs: true });
   const isValid = merkleTree.verify(recipient.proof, leaf, merkleRoot);
+
+  console.log('🔍 Verifying:', normalizedAddress);
+  console.log('🌿 Leaf:', leaf.toString('hex'));
+  console.log('📜 Proof:', recipient.proof);
+  console.log('🔗 Root:', merkleRoot);
+  console.log('✅ Is Valid?', isValid);
 
   return {
     eligible: isValid,

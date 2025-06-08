@@ -26,7 +26,7 @@ type RecipientFile = {
   count: number;
   merkleRoot: string;
   distributorAddress?: string;
-  recipients: { address: string; amount: string; proof?: string[] }[];
+  recipients: { address: string; amount?: string; proof?: string[] }[]; // Made amount optional
   proofs: { [address: string]: string[] };
 };
 
@@ -197,6 +197,31 @@ const ERC20_ABI = [
   },
 ] as const;
 
+// Minimal ERC721 ABI for ownerOf
+const ERC721_ABI = [
+  {
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    name: 'ownerOf',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
+// Minimal ERC1155 ABI for balanceOf
+const ERC1155_ABI = [
+  {
+    inputs: [
+      { name: 'account', type: 'address' },
+      { name: 'id', type: 'uint256' },
+    ],
+    name: 'balanceOf',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
 export default function ClaimPage() {
   const { address, isConnected } = useAccount();
   const [distributorAddress, setDistributorAddress] = useState('');
@@ -205,7 +230,7 @@ export default function ClaimPage() {
   const [success, setSuccess] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
 
-  // Airdrop info state with tokenType
+  // Airdrop info state with tokenType and tokenId for ERC1155
   const [airdropInfo, setAirdropInfo] = useState<{
     tokenAddress: string;
     dropAmount: string;
@@ -213,6 +238,8 @@ export default function ClaimPage() {
     merkleRoot: string;
     decimals: number;
     tokenType: number;
+    tokenId?: string;
+    tokenIds?: string[];
   } | null>(null);
 
   // Fetch distributor details
@@ -223,25 +250,32 @@ export default function ClaimPage() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const contract = new ethers.Contract(contractAddress, DISTRIBUTOR_ABI, provider);
 
-      const [tokenAddress, dropAmount, startTime, merkleRoot, tokenType] = await Promise.all([
+      const [tokenAddress, dropAmount, startTime, merkleRoot, tokenType, tokenId, tokenIds] = await Promise.all([
         contract.token(),
         contract.dropAmount(),
         contract.startTime(),
         contract.merkleRoot(),
         contract.tokenType(),
+        contract.tokenId(),
+        contract.getTokenIds(),
       ]);
 
-      // Fetch token decimals
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-      const decimals = await tokenContract.decimals();
+      // Fetch decimals only for ERC20
+      let decimals = 0;
+      if (Number(tokenType) === 0) {
+        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        decimals = await tokenContract.decimals();
+      }
 
       setAirdropInfo({
         tokenAddress,
-        dropAmount: ethers.formatUnits(dropAmount, decimals),
+        dropAmount: Number(tokenType) === 0 ? ethers.formatUnits(dropAmount, decimals) : dropAmount.toString(),
         startTime: new Date(Number(startTime) * 1000).toLocaleString(),
         merkleRoot,
         decimals: Number(decimals),
         tokenType: Number(tokenType),
+        tokenId: Number(tokenType) === 2 ? tokenId.toString() : undefined,
+        tokenIds: Number(tokenType) === 1 ? tokenIds.map((id: bigint) => id.toString()) : undefined,
       });
     } catch (err) {
       console.error('Error fetching distributor details:', err);
@@ -297,29 +331,21 @@ export default function ClaimPage() {
 
       // Find user's data
       let userProof: string[] | null = null;
-      let userAmount = '0';
       const userAddress = address.toLowerCase();
 
       for (const file of files) {
         if (file.proofs && file.proofs[userAddress]) {
           userProof = file.proofs[userAddress];
-          const recipient = file.recipients.find(
-            (r) => r.address && r.address.toLowerCase() === userAddress
-          );
-          if (recipient) {
-            userAmount = recipient.amount;
-          }
           break;
         }
 
         if (file.recipients) {
           const recipient = file.recipients.find(
-            (r: { address: string; amount: string; proof?: string[] }) =>
+            (r: { address: string; amount?: string; proof?: string[] }) =>
               r.address && r.address.toLowerCase() === userAddress
           );
 
           if (recipient) {
-            userAmount = recipient.amount;
             if (recipient.proof) {
               userProof = recipient.proof;
             } else if (file.proofs && file.proofs[userAddress]) {
@@ -338,9 +364,7 @@ export default function ClaimPage() {
 
       // Check token type
       const tokenType = await contract.tokenType();
-      if (Number(tokenType) !== 0) {
-        throw new Error('This airdrop is not for ERC20 tokens.');
-      }
+      const tokenTypeNum = Number(tokenType);
 
       // Check if already claimed
       const claimed = await contract.hasClaimed(address);
@@ -354,32 +378,57 @@ export default function ClaimPage() {
         throw new Error(`Airdrop not started. Starts at ${startDate.toLocaleString()}`);
       }
 
-      // Check token balance
+      // Validate contract balance based on token type
       setStatusMessage('Checking contract balance...');
-
       const tokenAddress = await contract.token();
       console.log('🪙 Token address from MerkleDistributor:', tokenAddress);
 
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-      const decimals = await tokenContract.decimals();
-      const contractBalance = await tokenContract.balanceOf(distributorAddress);
-      console.log('📦 Raw contract token balance:', contractBalance.toString());
-      console.log('📦 Formatted contract token balance:', ethers.formatUnits(contractBalance, decimals));
+      let dropAmountFormatted: string = '0';
+      let userAmountWei: ethers.BigNumberish = 0;
 
-      // Validate user amount against dropAmount
-      const dropAmount = await contract.dropAmount();
-      const dropAmountFormatted = ethers.formatUnits(dropAmount, decimals);
-      const userAmountWei = ethers.parseUnits(userAmount, decimals);
-      console.log('🎯 User claim amount (wei):', userAmountWei.toString());
-      console.log('🎯 User claim amount (formatted):', userAmount);
-      console.log('🎯 Contract drop amount (formatted):', dropAmountFormatted);
+      if (tokenTypeNum === 0) {
+        // ERC20
+        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const decimals = await tokenContract.decimals();
+        const contractBalance = await tokenContract.balanceOf(distributorAddress);
+        console.log('📦 Raw contract token balance:', contractBalance.toString());
+        console.log('📦 Formatted contract token balance:', ethers.formatUnits(contractBalance, decimals));
 
-      if (userAmount !== dropAmountFormatted) {
-        throw new Error(`User amount (${userAmount}) does not match contract drop amount (${dropAmountFormatted}).`);
-      }
+        const dropAmount = await contract.dropAmount();
+        dropAmountFormatted = ethers.formatUnits(dropAmount, decimals);
+        userAmountWei = dropAmount; // Use contract's dropAmount directly
+        console.log('🎯 Contract drop amount (wei):', dropAmount.toString());
+        console.log('🎯 Contract drop amount (formatted):', dropAmountFormatted);
 
-      if (contractBalance < userAmountWei) {
-        throw new Error("Contract doesn't have enough tokens to distribute.");
+        if (contractBalance < userAmountWei) {
+          throw new Error("Contract doesn't have enough tokens to distribute.");
+        }
+      } else if (tokenTypeNum === 1) {
+        // ERC721
+        const tokenIds = await contract.getTokenIds();
+        if (tokenIds.length === 0) {
+          throw new Error('No token IDs available for ERC721 airdrop.');
+        }
+        const tokenContract = new ethers.Contract(tokenAddress, ERC721_ABI, provider);
+        for (const tokenId of tokenIds) {
+          const owner = await tokenContract.ownerOf(tokenId);
+          if (owner.toLowerCase() !== distributorAddress.toLowerCase()) {
+            throw new Error(`Distributor does not own ERC721 token ID ${tokenId}.`);
+          }
+        }
+      } else if (tokenTypeNum === 2) {
+        // ERC1155
+        const tokenId = await contract.tokenId();
+        const dropAmount = await contract.dropAmount();
+        dropAmountFormatted = dropAmount.toString();
+        const tokenContract = new ethers.Contract(tokenAddress, ERC1155_ABI, provider);
+        const contractBalance = await tokenContract.balanceOf(distributorAddress, tokenId);
+        console.log('📦 ERC1155 contract balance for token ID', tokenId.toString(), ':', contractBalance.toString());
+        if (contractBalance < dropAmount) {
+          throw new Error(`Contract doesn't have enough ERC1155 tokens (ID ${tokenId}) to distribute.`);
+        }
+      } else {
+        throw new Error('Unsupported token type.');
       }
 
       // Execute claim transaction
@@ -404,7 +453,15 @@ export default function ClaimPage() {
       await tx.wait();
 
       localStorage.setItem('lastDistributorAddress', distributorAddress);
-      setSuccess(`Airdrop claimed successfully! You received ${userAmount} tokens. Transaction: ${tx.hash}`);
+      let successMessage = '';
+      if (tokenTypeNum === 0) {
+        successMessage = `Airdrop claimed successfully! You received ${dropAmountFormatted} tokens. Transaction: ${tx.hash}`;
+      } else if (tokenTypeNum === 1) {
+        successMessage = `Airdrop claimed successfully! You received an ERC721 NFT. Transaction: ${tx.hash}`;
+      } else if (tokenTypeNum === 2) {
+        successMessage = `Airdrop claimed successfully! You received ${dropAmountFormatted} ERC1155 tokens. Transaction: ${tx.hash}`;
+      }
+      setSuccess(successMessage);
     } catch (err) {
       console.error('Claim Error:', err);
 
@@ -479,12 +536,27 @@ export default function ClaimPage() {
                     <h3 className='text-lg font-semibold text-purple-100'>Airdrop Details</h3>
                     <div className='space-y-1 text-sm'>
                       <p>
+                        <strong>Token Type:</strong> {airdropInfo.tokenType === 0 ? 'ERC20' : airdropInfo.tokenType === 1 ? 'ERC721' : 'ERC1155'}
+                      </p>
+                      <p>
                         <strong>Token Address:</strong> 
                         <span className='font-mono text-xs ml-2'>{airdropInfo.tokenAddress}</span>
                       </p>
-                      <p>
-                        <strong>Drop Amount:</strong> {airdropInfo.dropAmount} tokens per claim
-                      </p>
+                      {airdropInfo.tokenType === 0 && (
+                        <p>
+                          <strong>Drop Amount:</strong> {airdropInfo.dropAmount} tokens per claim
+                        </p>
+                      )}
+                      {airdropInfo.tokenType === 1 && airdropInfo.tokenIds && (
+                        <p>
+                          <strong>Token IDs:</strong> {airdropInfo.tokenIds.join(', ')}
+                        </p>
+                      )}
+                      {airdropInfo.tokenType === 2 && airdropInfo.tokenId && (
+                        <p>
+                          <strong>Token ID:</strong> {airdropInfo.tokenId}, Amount: {airdropInfo.dropAmount}
+                        </p>
+                      )}
                       <p>
                         <strong>Start Time:</strong> {airdropInfo.startTime}
                       </p>
@@ -523,7 +595,7 @@ export default function ClaimPage() {
                 </Button>
                 
                 {!isConnected && (
-                  <p className='text-center text-purple-300 text-sm'>
+                  <p className='text-center text-purple-100 text-sm'>
                     Please connect your wallet to claim tokens
                   </p>
                 )}
