@@ -144,7 +144,7 @@ const TraderSidebar = () => {
               active={currentPath === '/dashboard/token-trader/airdrop'}
             />
             <SidebarLink
-              href='/dashboard/token-creator/airdrop-listing/claim'
+              href='/dashboard/token-trader/claim'
               icon={
                 <svg
                   xmlns='http://www.w3.org/2000/svg'
@@ -163,7 +163,7 @@ const TraderSidebar = () => {
                 </svg>
               }
               text='Claim Airdrop'
-              active={currentPath === '/dashboard/token-creator/airdrop-listing/claim'}
+              active={currentPath === '/dashboard/token-trader/claim'}
             />
             <SidebarLink
               href='/dashboard/token-trader/portfolio'

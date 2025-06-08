@@ -281,7 +281,7 @@ const DashboardSidebar = () => {
                     onClick={!selectedTokenId ? handleDistributeClick : undefined}
                   />
                   <SidebarLink
-                    href='/dashboard/token-creator/airdrop-listing/claim'
+                    href='/dashboard/token-trader/claim'
                     icon={
                       <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
                         <path d='M9 2a1 1 0 000 2h2a1 1 0 100-2H9z' />
@@ -293,7 +293,7 @@ const DashboardSidebar = () => {
                       </svg>
                     }
                     text='Claim Airdrop'
-                    active={currentPath === '/dashboard/token-creator/airdrop-listing/claim'}
+                    active={currentPath === '/dashboard/token-trader/claim'}
                   />
                 </div>
               )}
