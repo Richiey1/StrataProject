@@ -1,45 +1,58 @@
 'use client';
 
-import type React from 'react';
-
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useWallet } from '../../../contexts/WalletContext';
+import { useAuth } from '../../../contexts/AuthContext';
 
 export default function StratforgeUserRegistration() {
+  const router = useRouter();
+  const { address: connectedWalletAddress, isConnected } = useWallet();
+  const { register } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Get role and wallet address from localStorage on component mount
+  // Get role from localStorage on component mount
   useEffect(() => {
     const role = localStorage.getItem('userRole');
-    const wallet = localStorage.getItem('walletAddress');
-
     setUserRole(role);
-    setWalletAddress(wallet);
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setLoading(true);
 
-    // Create the payload with the data from localStorage and form
-    const payload = {
-      walletAddress: walletAddress || '',
-      name: fullName,
-      email: email,
-      role: userRole || '',
-    };
+    try {
+      if (!isConnected || !connectedWalletAddress) {
+        throw new Error('Please connect your wallet first');
+      }
 
-    console.log('Registration payload:', payload);
-
-    // Here you would send the payload to your backend
-    // fetch('/api/register', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify(payload)
-    // })
+      const response = await register({
+        walletAddress: connectedWalletAddress,
+        name: fullName,
+        email: email,
+        role: userRole || 'user'
+      });
+      
+      // Store email for verification page
+      localStorage.setItem('registrationEmail', email);
+      
+      // Only redirect after successful registration
+      if (response?.success) {
+        router.push('/email-verification');
+      }
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      setError(err.response?.data?.message || err.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,15 +82,31 @@ export default function StratforgeUserRegistration() {
 
         {/* Header */}
         <div className='text-center mb-6'>
-          <h1 className='text-xl font-semibold text-white mb-1'>Welcome to ProptyChain!</h1>
+          <h1 className='text-xl font-semibold text-white mb-1'>Welcome to StrataForge!</h1>
           <p className='text-sm text-gray-400'>Credentials are only used to authenticate you</p>
           {userRole && <p className='text-sm text-blue-400 mt-1'>Registering as: {userRole}</p>}
+          {connectedWalletAddress && (
+            <p className='text-sm text-green-400 mt-1'>
+              Connected wallet: {connectedWalletAddress.slice(0, 6)}...{connectedWalletAddress.slice(-4)}
+            </p>
+          )}
         </div>
 
-        {/* Form */}
+        {error && (
+          <div className='mb-4 p-3 rounded bg-red-500/10 border border-red-500/20 text-red-500 text-sm'>
+            {error}
+          </div>
+        )}
+
+        {!isConnected && (
+          <div className='mb-4 p-3 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-sm'>
+            Please connect your wallet to continue registration
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className='space-y-4'>
-            {/* Full Name - Single Input */}
+            {/* Full Name */}
             <div>
               <label htmlFor='fullName' className='block text-sm font-medium text-gray-300 mb-1'>
                 Full Name
@@ -122,8 +151,7 @@ export default function StratforgeUserRegistration() {
                 I agree to the{' '}
                 <Link href='#' className='text-blue-400 hover:underline'>
                   Terms & Conditions
-                </Link>
-                {'/dashboard'}
+                </Link>{' '}
                 and authorize my information to be securely verified.
               </label>
             </div>
@@ -131,10 +159,20 @@ export default function StratforgeUserRegistration() {
             {/* Register Button */}
             <button
               type='submit'
-              disabled={!agreedToTerms}
-              className='w-full py-2.5 mt-2 text-white font-medium bg-gradient-to-r from-blue-500 to-purple-500 rounded-md hover:from-blue-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-[#1a0e2e] disabled:opacity-70 disabled:cursor-not-allowed transition-all'
+              disabled={!agreedToTerms || loading}
+              className='w-full py-2.5 mt-2 text-white font-medium bg-gradient-to-r from-blue-500 to-purple-500 rounded-md hover:from-blue-600 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-[#1a0e2e] disabled:opacity-70 disabled:cursor-not-allowed transition-all flex items-center justify-center'
             >
-              Register
+              {loading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Registering...
+                </>
+              ) : (
+                'Register'
+              )}
             </button>
           </div>
         </form>

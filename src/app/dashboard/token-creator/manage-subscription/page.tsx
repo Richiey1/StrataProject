@@ -6,7 +6,7 @@ import { Abi } from 'viem';
 import StrataForgeAdminABI from '../../../../app/components/ABIs/StrataForgeAdminABI.json';
 import DashboardLayout from '../DashboardLayout';
 
-const ADMIN_CONTRACT_ADDRESS = '0x7e8541Ba29253C1722d366e3d08975B03f3Cc839' as const;
+const ADMIN_CONTRACT_ADDRESS = '0xADC01DF1dA777a7fE0A93eC58BfC6b69d3354599' as const;
 const adminABI = StrataForgeAdminABI as Abi;
 const CHAINLINK_ABI = [
   {

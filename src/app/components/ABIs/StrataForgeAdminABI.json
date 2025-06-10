@@ -338,42 +338,6 @@
   },
   {
     "inputs": [
-      { "internalType": "uint256", "name": "tokenId", "type": "uint256" }
-    ],
-    "name": "getTokenById",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "tokenAddress",
-            "type": "address"
-          },
-          { "internalType": "string", "name": "name", "type": "string" },
-          { "internalType": "string", "name": "symbol", "type": "string" },
-          {
-            "internalType": "uint96",
-            "name": "initialSupply",
-            "type": "uint96"
-          },
-          { "internalType": "uint40", "name": "timestamp", "type": "uint40" },
-          {
-            "internalType": "enum StrataForgeFactory.TokenType",
-            "name": "tokenType",
-            "type": "uint8"
-          },
-          { "internalType": "address", "name": "creator", "type": "address" }
-        ],
-        "internalType": "struct StrataForgeFactory.TokenInfo",
-        "name": "",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
       { "internalType": "address", "name": "user", "type": "address" }
     ],
     "name": "incrementTokenCount",

@@ -7,7 +7,7 @@ import StrataForgeAdminABI from '../../../app/components/ABIs/StrataForgeAdminAB
 import StrataForgeFactoryABI from '../../../app/components/ABIs/StrataForgeFactoryABI.json';
 import AdminDashboardLayout from './AdminDashboardLayout';
 
-const ADMIN_CONTRACT_ADDRESS = '0x7e8541Ba29253C1722d366e3d08975B03f3Cc839' as const;
+const ADMIN_CONTRACT_ADDRESS = '0xADC01DF1dA777a7fE0A93eC58BfC6b69d3354599' as const;
 const FACTORY_CONTRACT_ADDRESS = '0x59F42c3eEcf829b34d8Ca846Dfc83D3cDC105C3F' as const;
 
 const adminABI = StrataForgeAdminABI as Abi;

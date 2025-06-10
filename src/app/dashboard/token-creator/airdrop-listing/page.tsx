@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ethers } from 'ethers';
+
+import { useReadContract } from 'wagmi';
 import { Button } from '../../../../../components/ui/button';
 import {
   Card,
@@ -11,8 +13,14 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../../../components/ui/card';
-import { Input } from '../../../../../components/ui/input';
-import { Label } from '../../../../../components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../../../components/ui/table';
 import { Alert, AlertDescription } from '../../../../../components/ui/alert';
 import { ArrowRight, Coins } from 'lucide-react';
 import DashBoardLayout from '../../token-creator/DashboardLayout';
@@ -259,8 +267,8 @@ export default function ClaimAirdrop() {
                 >
                   {loading ? 'Claiming...' : 'Claim Airdrop'}
                 </Button>
-              </CardContent>
-            </Card>
+              </Link>
+            </div>
           </div>
         </main>
       </div>

@@ -33,6 +33,8 @@ interface TokenDetails {
 
 interface TokenInfo {
   tokenAddress: string;
+  name: string;
+  symbol: string;
   tokenType: bigint;
 }
 
@@ -258,14 +260,14 @@ const ManageToken = () => {
     address: tokenAddress as `0x${string}`,
     abi: tokenType ? tokenABIs[tokenType] : tokenABIs.erc20,
     functionName: 'name',
-    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) },
+    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) && tokenType !== 'erc1155' },
   });
 
   const symbolQuery = useReadContract({
     address: tokenAddress as `0x${string}`,
     abi: tokenType ? tokenABIs[tokenType] : tokenABIs.erc20,
     functionName: 'symbol',
-    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) },
+    query: { enabled: !!tokenType && !!tokenAddress && isAddress(tokenAddress) && tokenType !== 'erc1155' },
   });
 
   const decimalsQuery = useReadContract({
@@ -290,15 +292,23 @@ const ManageToken = () => {
 
   // Fetch token details and owner status
   useEffect(() => {
-    if (!tokenType || !tokenAddress || !isAddress(tokenAddress)) return;
+    if (!tokenType || !tokenAddress || !isAddress(tokenAddress) || !tokenInfo) return;
 
-    const name = nameQuery.data as string;
-    const symbol = symbolQuery.data as string;
-    const decimals = decimalsQuery.data as number | undefined;
     const owner = ownerQuery.data as string;
 
-    if (name && symbol) {
-      setTokenDetails({ name, symbol, decimals });
+    if (tokenType === 'erc1155') {
+      const factoryName = (tokenInfo as TokenInfo).name;
+      const factorySymbol = (tokenInfo as TokenInfo).symbol;
+      if (factoryName && factorySymbol) {
+        setTokenDetails({ name: factoryName, symbol: factorySymbol });
+      }
+    } else {
+      const name = nameQuery.data as string;
+      const symbol = symbolQuery.data as string;
+      const decimals = decimalsQuery.data as number | undefined;
+      if (name && symbol) {
+        setTokenDetails({ name, symbol, decimals });
+      }
     }
 
     setIsOwner(Boolean(owner && account && owner.toLowerCase() === account.toLowerCase()));
@@ -307,6 +317,7 @@ const ManageToken = () => {
     tokenType,
     tokenAddress,
     account,
+    tokenInfo,
     nameQuery.data,
     symbolQuery.data,
     decimalsQuery.data,
@@ -1180,9 +1191,8 @@ const ManageToken = () => {
   if (error || !tokenType || !tokenDetails || !tokenAddress) {
     return (
       <DashboardLayout>
-        <div className="min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36] p-4 md:p-8 relative">
-          <BackgroundShapes />
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center space-x-3 relative z-10">
+        <div className="min-h-screen bg-gradient-to-br from-[#1A0D23] to-[#2A1F36] p-4 md:p-8 relative z-10">
+          <div className="bg-red-500/10 border border-red-400/15 rounded-xl p-4 flex items-center space-x-3">
             <p className="text-red-300 font-medium">{error || 'Failed to load token data'}</p>
           </div>
         </div>

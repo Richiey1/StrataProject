@@ -17,10 +17,10 @@ if (!projectId) {
 
 // Set up metadata
 const metadata = {
-  name: 'appkit-example',
-  description: 'AppKit Example',
-  url: 'https://appkitexampleapp.com', // origin must match your domain & subdomain
-  icons: ['https://avatars.githubusercontent.com/u/179229932'],
+  name: 'StrataForge',
+  description: 'StrataForge Token Creation Platform',
+  url: 'https://strataforge.buyinbytes.com',
+  icons: ['https://strataforge.buyinbytes.com/strataforge-logo.png'],
 };
 
 // Create the modal
@@ -28,10 +28,10 @@ const modal = createAppKit({
   adapters: [wagmiAdapter],
   projectId,
   networks: [mainnet, arbitrum, baseSepolia, liskSepolia],
-  defaultNetwork: mainnet,
+  defaultNetwork: baseSepolia,
   metadata: metadata,
   features: {
-    analytics: true, // Optional - defaults to your Cloud configuration
+    analytics: true,
   },
 });
 

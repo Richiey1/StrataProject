@@ -3,6 +3,7 @@ import Header from './components/layout/Header';
 import { headers } from 'next/headers';
 import ContextProvider from '../contexts/appKitContext';
 import { WalletProvider } from '../contexts/WalletContext';
+import { AuthProvider } from '../contexts/AuthContext';
 import { Toaster } from 'react-hot-toast';
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -12,11 +13,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang='en'>
       <body className='min-h-screen bg-black'>
-        <Header />
         <ContextProvider cookies={cookies}>
-          <WalletProvider>{children}
-          <Toaster />
-          </WalletProvider>
+          <AuthProvider>
+            <WalletProvider>
+              <Header />
+              {children}
+              <Toaster />
+            </WalletProvider>
+          </AuthProvider>
         </ContextProvider>
       </body>
     </html>

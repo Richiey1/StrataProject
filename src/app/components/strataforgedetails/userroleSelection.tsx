@@ -9,8 +9,8 @@ export default function TokenPlatformRoleSelection() {
 
   // Map UI roles to backend roles
   const roleMapping: Record<string, string> = {
-    'Token Creator': 'creator',
-    'Token Trader': 'trader',
+    'Owner': 'owner',
+    'User': 'user',
   };
 
   const handleContinue = () => {
@@ -18,23 +18,19 @@ export default function TokenPlatformRoleSelection() {
       // Map the selected UI role to the backend role
       const backendRole = roleMapping[selectedRole];
 
-      // Store the role in memory (since localStorage isn't available in artifacts)
-      // In your actual implementation, use localStorage.setItem('userRole', backendRole);
+      // Store the role in localStorage
+      localStorage.setItem('userRole', backendRole);
       console.log(`Selected role: ${backendRole}`);
 
-      // Redirect based on role
-      if (backendRole === 'creator') {
-        router.push('/dashboard/creator');
-      } else {
-        router.push('/dashboard/trader');
-      }
+      // Redirect to registration
+      router.push('/user-registration');
     }
   };
 
   const roles = [
     {
-      id: 'Token Owner/ Creator',
-      title: 'Token Creator',
+      id: 'Owner',
+      title: 'Owner',
       description: 'Create and deploy tokens, set up airdrops, and manage token distribution.',
       features: ['Create custom tokens', 'Deploy to blockchain', 'Setup airdrops', 'Manage distributions'],
       imagePath: '/icons/token-creator.png',
@@ -43,8 +39,8 @@ export default function TokenPlatformRoleSelection() {
       borderColor: 'border-emerald-500/30',
     },
     {
-      id: 'Token Trader',
-      title: 'Token Trader',
+      id: 'User',
+      title: 'User',
       description: 'Discover tokens, participate in airdrops, and trade on the marketplace.',
       features: ['Browse tokens', 'Claim airdrops'],
       imagePath: '/icons/token-trader.png',
@@ -93,7 +89,7 @@ export default function TokenPlatformRoleSelection() {
                 {/* Icon placeholder - you can replace with actual icons */}
                 <div className={`w-16 h-16 rounded-full bg-gradient-to-r ${role.bgGradient} flex items-center justify-center mb-2`}>
                   <div className={`w-8 h-8 ${role.color}`}>
-                    {role.id === 'Token Creator' ? (
+                    {role.id === 'Owner' ? (
                       <svg fill='currentColor' viewBox='0 0 20 20'>
                         <path fillRule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z' clipRule='evenodd' />
                       </svg>

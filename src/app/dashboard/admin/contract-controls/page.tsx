@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, ChangeEvent } from 'react';
 import { useWallet } from '../../../../contexts/WalletContext';
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { Abi, isAddress } from 'viem';
@@ -7,10 +7,34 @@ import StrataForgeAdminABI from '../../../../app/components/ABIs/StrataForgeAdmi
 import StrataForgeFactoryABI from '../../../../app/components/ABIs/StrataForgeFactoryABI.json';
 import AdminDashboardLayout from '../AdminDashboardLayout';
 
-const ADMIN_CONTRACT_ADDRESS = '0x7e8541Ba29253C1722d366e3d08975B03f3Cc839' as const;
+const ADMIN_CONTRACT_ADDRESS = '0xADC01DF1dA777a7fE0A93eC58BfC6b69d3354599' as const;
+const FACTORY_CONTRACT_ADDRESS = '0x59F42c3eEcf829b34d8Ca846Dfc83D3cDC105C3F' as const;
 const adminABI = StrataForgeAdminABI as Abi;
 const factoryABI = StrataForgeFactoryABI as Abi;
 const EXPLORER_URL = 'https://sepolia.basescan.org/address';
+
+// Define proper types for token data
+interface TokenInfo {
+  tokenAddress: string;
+  name: string;
+  symbol: string;
+  initialSupply: string;
+  timestamp: number;
+  tokenType: number;
+  creator: string;
+}
+
+type TokenDataArray = [string, string, string, bigint, bigint, bigint, string];
+
+interface TokenDataObject {
+  tokenAddress: string;
+  name: string;
+  symbol: string;
+  initialSupply: bigint | string | number;
+  timestamp: bigint | string | number;
+  tokenType: bigint | string | number;
+  creator: string;
+}
 
 const ContractControls = () => {
   const { address, isConnected } = useWallet();
@@ -21,20 +45,16 @@ const ContractControls = () => {
   const [newAdminAddress, setNewAdminAddress] = useState('');
   const [creatorAddress, setCreatorAddress] = useState('');
   const [tokenId, setTokenId] = useState('');
-  const [tokenDetails, setTokenDetails] = useState<{ tokenAddress: string; creator: string } | null>(null);
+  const [tokenDetails, setTokenDetails] = useState<TokenInfo | null>(null);
   const [creatorTokenCount, setCreatorTokenCount] = useState<bigint | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
   const [isTxPending, setIsTxPending] = useState(false);
 
-  // Wagmi write contract hook
   const { writeContract, error: writeError, isPending: isWritePending } = useWriteContract();
-
-  // Wait for transaction receipt
   const { isLoading: isTxConfirming, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
   });
 
-  // Get admin count
   const {
     data: adminCount,
     error: adminCountError,
@@ -47,7 +67,6 @@ const ContractControls = () => {
     query: { enabled: isConnected, retry: 3, retryDelay: 1000 },
   });
 
-  // Get contract state (factory, admin paused, factory paused)
   const {
     data: contractState,
     error: contractStateError,
@@ -68,7 +87,6 @@ const ContractControls = () => {
     query: { enabled: isConnected, retry: 3, retryDelay: 1000 },
   });
 
-  // Get factory contract state (total token count, airdrop count, paused)
   const {
     data: factoryState,
     error: factoryStateError,
@@ -94,21 +112,19 @@ const ContractControls = () => {
     query: { enabled: isConnected && !!contractState?.[0]?.result, retry: 3, retryDelay: 1000 },
   });
 
-  // Get token by ID (from admin contract)
   const {
     data: tokenData,
     error: tokenError,
     isLoading: tokenLoading,
     refetch: refetchToken,
   } = useReadContract({
-    address: ADMIN_CONTRACT_ADDRESS,
-    abi: adminABI,
+    address: FACTORY_CONTRACT_ADDRESS,
+    abi: factoryABI,
     functionName: 'getTokenById',
     args: [tokenId ? BigInt(tokenId) : BigInt(0)],
-    query: { enabled: isConnected && !!tokenId && Number(tokenId) >= 0, retry: 3, retryDelay: 1000 },
+    query: { enabled: isConnected && !!tokenId && Number(tokenId) > 0, retry: 3, retryDelay: 1000 },
   });
 
-  // Get token count for creator (from factory contract)
   const {
     data: creatorTokenCountData,
     error: creatorTokenCountError,
@@ -122,7 +138,6 @@ const ContractControls = () => {
     query: { enabled: isConnected && isAddress(creatorAddress) && !!contractState?.[0]?.result, retry: 3, retryDelay: 1000 },
   });
 
-  // Create array of admin read calls
   const adminChecks = React.useMemo(() => {
     if (!adminCount || !isConnected || !adminCountSuccess) return [];
     const count = Number(adminCount);
@@ -144,7 +159,6 @@ const ContractControls = () => {
     query: { enabled: adminChecks.length > 0, retry: 3, retryDelay: 1000 },
   });
 
-  // Check admin status
   useEffect(() => {
     if (!address || !adminAddressesSuccess || !adminAddresses || adminAddresses.length === 0) {
       if (!adminCountLoading && !adminAddressesLoading && adminCountSuccess) {
@@ -169,22 +183,59 @@ const ContractControls = () => {
     setLoading(false);
   }, [address, adminAddresses, adminAddressesSuccess, adminCountLoading, adminAddressesLoading, adminCountSuccess]);
 
-  // Handle token data
   useEffect(() => {
-    if (tokenData && !tokenError) {
-      const [tokenAddress, creator] = tokenData as [string, string];
-      setTokenDetails({ tokenAddress, creator });
+    console.log('tokenData:', tokenData, 'tokenError:', tokenError);
+    if (tokenError) {
+      setTokenDetails(null);
+      setError(tokenError.message.includes('InvalidTokenId') ? 'Invalid token ID' : 'Failed to load token details');
+      return;
+    }
+
+    if (tokenData) {
+      try {
+        let tokenInfo: TokenInfo;
+
+        if (Array.isArray(tokenData)) {
+          const [tokenAddress, name, symbol, initialSupply, timestamp, tokenType, creator] = tokenData as TokenDataArray;
+          tokenInfo = {
+            tokenAddress,
+            name,
+            symbol,
+            initialSupply: initialSupply.toString(),
+            timestamp: Number(timestamp) * 1000,
+            tokenType: Number(tokenType),
+            creator,
+          };
+        } else if (typeof tokenData === 'object' && tokenData !== null) {
+          const tokenObj = tokenData as TokenDataObject;
+          tokenInfo = {
+            tokenAddress: tokenObj.tokenAddress,
+            name: tokenObj.name,
+            symbol: tokenObj.symbol,
+            initialSupply: BigInt(tokenObj.initialSupply || 0).toString(),
+            timestamp: Number(tokenObj.timestamp || 0) * 1000,
+            tokenType: Number(tokenObj.tokenType || 0),
+            creator: tokenObj.creator,
+          };
+        } else {
+          throw new Error('Invalid tokenData format');
+        }
+
+        setTokenDetails(tokenInfo);
+      } catch (err) {
+        console.error('Error processing tokenData:', err);
+        setTokenDetails(null);
+        setError('Failed to parse token details');
+      }
     }
   }, [tokenData, tokenError]);
 
-  // Handle creator token count
   useEffect(() => {
     if (creatorTokenCountData && !creatorTokenCountError) {
       setCreatorTokenCount(creatorTokenCountData as bigint);
     }
   }, [creatorTokenCountData, creatorTokenCountError]);
 
-  // Handle errors
   useEffect(() => {
     const errors: string[] = [];
     if (adminCountError) errors.push('Failed to load admin count');
@@ -195,10 +246,11 @@ const ContractControls = () => {
     if (creatorTokenCountError) errors.push('Failed to load creator token count');
     if (writeError) {
       const errorMessage = writeError.message.includes('NotAdmin') ? 'Only admins can perform this action' :
-                           writeError.message.includes('InvalidAddress') ? 'Invalid address provided' :
-                           writeError.message.includes('AlreadyPaused') ? 'Contract is already paused' :
-                           writeError.message.includes('NotPaused') ? 'Contract is not paused' :
-                           'Transaction failed';
+        writeError.message.includes('InvalidAddress') ? 'Invalid address provided' :
+        writeError.message.includes('AlreadyPaused') ? 'Contract is already paused' :
+        writeError.message.includes('NotPaused') ? 'Contract is not paused' :
+        writeError.message.includes('InvalidTokenId') ? 'Invalid token ID' :
+        'Transaction failed';
       errors.push(errorMessage);
     }
 
@@ -209,7 +261,6 @@ const ContractControls = () => {
     }
   }, [adminCountError, adminAddressesError, contractStateError, factoryStateError, tokenError, creatorTokenCountError, writeError, adminCountLoading, adminAddressesLoading, contractStateLoading, factoryStateLoading, tokenLoading, creatorTokenCountLoading, isTxConfirming]);
 
-  // Handle transaction success
   useEffect(() => {
     if (isTxSuccess && txHash) {
       setNewFactoryAddress('');
@@ -219,7 +270,6 @@ const ContractControls = () => {
     }
   }, [isTxSuccess, txHash]);
 
-  // Set factory contract (admin contract)
   const handleSetFactory = () => {
     if (!isAddress(newFactoryAddress)) {
       setError('Please enter a valid Ethereum address for factory');
@@ -237,7 +287,6 @@ const ContractControls = () => {
     });
   };
 
-  // Update admin contract (factory contract)
   const handleUpdateAdminContract = () => {
     if (!isAddress(newAdminAddress)) {
       setError('Please enter a valid Ethereum address for admin contract');
@@ -255,7 +304,6 @@ const ContractControls = () => {
     });
   };
 
-  // Pause admin contract
   const handleAdminPause = () => {
     setIsTxPending(true);
     writeContract({
@@ -268,7 +316,6 @@ const ContractControls = () => {
     });
   };
 
-  // Unpause admin contract
   const handleAdminUnpause = () => {
     setIsTxPending(true);
     writeContract({
@@ -281,7 +328,6 @@ const ContractControls = () => {
     });
   };
 
-  // Pause factory contract
   const handleFactoryPause = () => {
     setIsTxPending(true);
     writeContract({
@@ -294,7 +340,6 @@ const ContractControls = () => {
     });
   };
 
-  // Unpause factory contract
   const handleFactoryUnpause = () => {
     setIsTxPending(true);
     writeContract({
@@ -307,16 +352,15 @@ const ContractControls = () => {
     });
   };
 
-  // Query token by ID
   const handleQueryToken = () => {
-    if (!tokenId || Number(tokenId) < 0) {
-      setError('Please enter a valid token ID');
+    if (!tokenId || Number(tokenId) <= 0) {
+      setError('Please enter a valid token ID (greater than 0)');
       return;
     }
+    setTokenDetails(null);
     refetchToken();
   };
 
-  // Query creator token count
   const handleQueryCreatorTokenCount = () => {
     if (!isAddress(creatorAddress)) {
       setError('Please enter a valid creator address');
@@ -325,7 +369,6 @@ const ContractControls = () => {
     refetchCreatorTokenCount();
   };
 
-  // Loading Component
   const LoadingSpinner = () => (
     <div className="flex items-center justify-center min-h-screen bg-[#1A0D23] relative">
       <div className="text-center relative z-10">
@@ -336,7 +379,6 @@ const ContractControls = () => {
     </div>
   );
 
-  // Wallet Connection Component
   const WalletConnection = () => (
     <div className="min-h-screen bg-[#1A0D23] flex items-center justify-center p-4 relative">
       <div className="bg-[#1E1425]/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-purple-500/20 p-8 text-center relative z-10">
@@ -352,7 +394,6 @@ const ContractControls = () => {
     </div>
   );
 
-  // Unauthorized Access Component
   const UnauthorizedAccess = () => (
     <div className="min-h-screen bg-[#1A0D23] relative overflow-hidden flex items-center justify-center p-4">
       <div className="max-w-lg w-full relative z-10">
@@ -412,7 +453,7 @@ const ContractControls = () => {
   const adminPaused = contractState?.[1]?.result as boolean;
   const factoryPaused = factoryState?.[2]?.result as boolean;
   const factoryAddress = contractState?.[0]?.result as string | undefined;
-
+  
   return (
     <AdminDashboardLayout>
       <div className="min-h-screen bg-[#1A0D23] p-4 md:p-8 relative">
@@ -596,7 +637,7 @@ const ContractControls = () => {
                   type="number"
                   placeholder="Enter token ID"
                   value={tokenId}
-                  onChange={(e) => setTokenId(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setTokenId(e.target.value)}
                   className="w-full md:flex-1 bg-[#16091D]/60 border border-gray-700/30 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
                 />
                 <button
@@ -624,6 +665,23 @@ const ContractControls = () => {
                     </a>
                   </p>
                   <p className="text-gray-300">
+                    <span className="font-medium">Name:</span> {tokenDetails.name}
+                  </p>
+                  <p className="text-gray-300">
+                    <span className="font-medium">Symbol:</span> {tokenDetails.symbol}
+                  </p>
+                  <p className="text-gray-300">
+                    <span className="font-medium">Initial Supply:</span> {tokenDetails.initialSupply}
+                  </p>
+                  <p className="text-gray-300">
+                    <span className="font-medium">Created At:</span>{' '}
+                    {new Date(tokenDetails.timestamp).toLocaleString()}
+                  </p>
+                  <p className="text-gray-300">
+                    <span className="font-medium">Token Type:</span>{' '}
+                    {['Unknown', 'ERC20', 'ERC721', 'ERC1155', 'Memecoin', 'Stablecoin'][tokenDetails.tokenType] || 'Unknown'}
+                  </p>
+                  <p className="text-gray-300">
                     <span className="font-medium">Creator:</span>{' '}
                     <a
                       href={`${EXPLORER_URL}/${tokenDetails.creator}`}
@@ -644,13 +702,13 @@ const ContractControls = () => {
                   type="text"
                   placeholder="Enter creator address (0x...)"
                   value={creatorAddress}
-                  onChange={(e) => setCreatorAddress(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setCreatorAddress(e.target.value)}
                   className="w-full md:flex-1 bg-[#16091D]/60 border border-gray-700/30 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
                 />
                 <button
                   onClick={handleQueryCreatorTokenCount}
                   disabled={creatorTokenCountLoading || isWritePending || isTxPending || isTxConfirming || !factoryAddress}
-                  className={`w-full md:w-auto px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 ${
+                  className={`w-full md:w-auto px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 ${
                     (creatorTokenCountLoading || isWritePending || isTxPending || isTxConfirming || !factoryAddress) ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
                 >
@@ -671,7 +729,9 @@ const ContractControls = () => {
                       {creatorAddress.slice(0, 6)}...{creatorAddress.slice(-4)}
                     </a>
                   </p>
-                  <p className="text-gray-300"><span className="font-medium">Token Count:</span> {creatorTokenCount.toString()}</p>
+                  <p className="text-gray-300">
+                    <span className="font-medium">Token Count:</span> {creatorTokenCount.toString()}
+                  </p>
                 </div>
               )}
             </div>
