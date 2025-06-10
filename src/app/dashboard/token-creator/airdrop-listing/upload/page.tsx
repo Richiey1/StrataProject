@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../../../../../components/ui/table';
-import { Upload, FileText, Trash2, Plus, Coins } from 'lucide-react';
+import { Upload, FileText, Trash2, Plus, Coins, ArrowLeft } from 'lucide-react';
 import { Badge } from '../../../../../../components/ui/badge';
 import { ScrollArea } from '../../../../../../components/ui/scroll-area';
 import { Alert, AlertDescription } from '../../../../../../components/ui/alert';

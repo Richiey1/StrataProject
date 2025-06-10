@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ethers } from 'ethers';
 
-import { useReadContract } from 'wagmi';
 import { Button } from '../../../../../components/ui/button';
 import {
   Card,
@@ -13,20 +12,14 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../../../components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../../../../components/ui/table';
 import { Alert, AlertDescription } from '../../../../../components/ui/alert';
 import { ArrowRight, Coins } from 'lucide-react';
 import DashBoardLayout from '../../token-creator/DashboardLayout';
 import StrataForgeFactoryABI from '../../../components/ABIs/StrataForgeFactoryABI.json';
 import { useWallet } from '../../../../contexts/WalletContext';
 import DISTRIBUTOR_ABI from '../../../../lib/contracts/DistributorABI.json';
+import { Label } from '../../../../../components/ui/label';
+import { Input } from '../../../../../components/ui/input';
 
 // Constants
 const FACTORY_CONTRACT_ADDRESS = '0x3A1aCc78cc5ec3a320236f470319f60727De6Ed4';
@@ -267,8 +260,8 @@ export default function ClaimAirdrop() {
                 >
                   {loading ? 'Claiming...' : 'Claim Airdrop'}
                 </Button>
-              </Link>
-            </div>
+              </CardContent>
+            </Card>
           </div>
         </main>
       </div>

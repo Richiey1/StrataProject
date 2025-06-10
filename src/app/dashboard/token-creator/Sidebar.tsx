@@ -57,6 +57,7 @@ export default function DashboardSidebar() {
     expiry: number;
   } | null>(null);
   const [selectedTokenId, setSelectedTokenId] = useState<string>('');
+  const [isAirdropOpen, setIsAirdropOpen] = useState(false);
 
   // Fetch subscription status
   const { data: subData } = useReadContract({
