@@ -20,7 +20,6 @@ export default function TokenPlatformRoleSelection() {
 
       // Store the role in localStorage
       localStorage.setItem('userRole', backendRole);
-      console.log(`Selected role: ${backendRole}`);
 
       // Redirect to registration
       router.push('/user-registration');
