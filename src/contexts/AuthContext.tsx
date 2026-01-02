@@ -98,14 +98,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const response = await axios.post<LoginResponse>(`${API_URL}/auth/login`, credentials);
       const loginResponse = response.data;
-      console.log('Full login response:', response);
-      console.log('Login response data:', loginResponse);
-      console.log('Login response structure:', {
-        success: loginResponse.success,
-        message: loginResponse.message,
-        hasData: loginResponse.data !== undefined,
-        fullStructure: JSON.stringify(loginResponse, null, 2)
-      });
 
       if (!loginResponse.success || !loginResponse.data) {
         console.error('Invalid response format:', loginResponse);
