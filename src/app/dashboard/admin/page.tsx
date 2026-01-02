@@ -74,7 +74,6 @@ const AdminDashboard = () => {
     if (!adminCount || !isConnected || !adminCountSuccess) return [];
 
     const count = Number(adminCount);
-    console.log('Creating admin checks for count:', count);
 
     return Array.from({ length: count }, (_, i) => ({
       address: ADMIN_CONTRACT_ADDRESS as `0x${string}`,
@@ -101,11 +100,6 @@ const AdminDashboard = () => {
   // Check admin status
   useEffect(() => {
     if (!address || !adminAddressesSuccess || !adminAddresses || adminAddresses.length === 0) {
-      console.log('Admin check conditions not met:', {
-        address: !!address,
-        adminAddressesSuccess,
-        adminAddressesLength: adminAddresses?.length || 0,
-      });
 
       if (!adminCountLoading && !adminAddressesLoading && adminCountSuccess) {
         setLoading(false);
@@ -116,15 +110,12 @@ const AdminDashboard = () => {
     let isAdminUser = false;
     let userAdminIndex = null;
 
-    console.log('Checking admin addresses:', adminAddresses);
 
     for (let i = 0; i < adminAddresses.length; i++) {
       const result = adminAddresses[i];
-      console.log(`Admin check ${i}:`, result);
 
       if (result && result.status === 'success' && result.result) {
         const adminAddress = result.result as string;
-        console.log(`Admin ${i}:`, adminAddress);
 
         if (adminAddress && adminAddress.toLowerCase() === address.toLowerCase()) {
           isAdminUser = true;
@@ -136,8 +127,6 @@ const AdminDashboard = () => {
       }
     }
 
-    console.log('Connected Address:', address);
-    console.log('Is Admin:', isAdminUser);
     setIsAdmin(isAdminUser);
     setAdminIndex(userAdminIndex);
     setLoading(false);
