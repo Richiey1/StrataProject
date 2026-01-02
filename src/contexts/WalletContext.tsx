@@ -68,13 +68,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const role = localStorage.getItem('role');
       const storedWalletAddress = localStorage.getItem(WALLET_ADDRESS_KEY);
       
-      console.log('Checking auth status:', {
-        token,
-        role,
-        storedWalletAddress,
-        currentAddress: address,
-        isConnected
-      });
+
 
       if (token && role && storedWalletAddress && address && isConnected) {
         setIsAuthenticated(true);
@@ -90,11 +84,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleWalletConnection = async () => {
       try {
-        console.log('Wallet state changed:', { address, caipAddress, isConnected });
-        
         if (address && isConnected) {
           localStorage.setItem(WALLET_ADDRESS_KEY, address);
-          console.log('Stored wallet address:', address);
 
           // Check if we have a token and role already
           const token = localStorage.getItem('token');
@@ -103,25 +94,20 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           // If we have both token and role, we're already authenticated
           if (token && role) {
             setIsAuthenticated(true);
-            console.log('User already authenticated with token and role');
             return;
           }
 
           // Don't attempt login on registration or verification pages
           if (pathname?.includes('registration') || pathname?.includes('verification')) {
-            console.log('Skipping login on registration/verification pages');
             return;
           }
 
           try {
             const response = await login({ walletAddress: address });
-            console.log('Login response:', response);
             
             if (response.success && response.data?.token) {
               setIsAuthenticated(true);
-              console.log('Login successful, user is authenticated');
             } else {
-              console.log('Login unsuccessful:', response.message);
               setIsAuthenticated(false);
               
               // If user is not found and we're not on registration page, redirect to registration
@@ -131,7 +117,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             }
           } catch (error: unknown) {
             const err = error as { response?: { data?: unknown }; message?: string };
-            console.log('Login failed:', err?.response?.data || err);
             setIsAuthenticated(false);
             
             // Only clear token and role if it's not a "user not found" error
@@ -145,7 +130,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem('token');
           localStorage.removeItem('role');
           setIsAuthenticated(false);
-          console.log('Wallet disconnected, cleared auth data');
         }
       } catch (error) {
         console.error('Error in wallet connection handler:', error);
@@ -166,7 +150,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       if (appkitButton) {
         // Trigger click on the appkit-button element
         (appkitButton as HTMLElement).click();
-        console.log('AppKit button clicked');
       } else {
         throw new Error('AppKit button not found in the DOM');
       }
@@ -187,7 +170,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(WALLET_ADDRESS_KEY);
       localStorage.removeItem('token');
       localStorage.removeItem('role');
-      console.log('Wallet disconnected successfully');
     } catch (error) {
       console.error('Error disconnecting wallet:', error);
     }
