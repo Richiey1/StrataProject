@@ -75,7 +75,6 @@ const AdminSidebar = () => {
     if (!adminCount || !isConnected || !adminCountSuccess) return [];
 
     const count = Number(adminCount);
-    console.log('Sidebar Admin Count:', count);
 
     return Array.from({ length: count }, (_, i) => ({
       address: ADMIN_CONTRACT_ADDRESS as `0x${string}`,
@@ -101,11 +100,6 @@ const AdminSidebar = () => {
   // Check admin status
   useEffect(() => {
     if (!address || !adminAddressesSuccess || !adminAddresses || adminAddresses.length === 0) {
-      console.log('Sidebar admin check conditions not met:', {
-        address: !!address,
-        adminAddressesSuccess,
-        adminAddressesLength: adminAddresses?.length || 0,
-      });
       setIsLoading(false);
       return;
     }
@@ -114,11 +108,9 @@ const AdminSidebar = () => {
 
     for (let i = 0; i < adminAddresses.length; i++) {
       const result = adminAddresses[i];
-      console.log(`Sidebar Admin check ${i}:`, result);
 
       if (result && result.status === 'success' && result.result) {
         const adminAddress = result.result as string;
-        console.log(`Sidebar Admin ${i}:`, adminAddress);
 
         if (adminAddress && adminAddress.toLowerCase() === address.toLowerCase()) {
           isAdminUser = true;
@@ -129,7 +121,6 @@ const AdminSidebar = () => {
       }
     }
 
-    console.log('Sidebar Is Admin:', isAdminUser);
     setIsAdmin(isAdminUser);
     setIsLoading(false);
   }, [address, adminAddresses, adminAddressesSuccess]);
