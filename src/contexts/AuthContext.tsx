@@ -1,264 +1,89 @@
-'use client';
+"use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import axios from 'axios';
+import { useRouter } from 'next/navigation';
 
-// Define your API URL
-const API_URL = 'https://strataforge.buyinbytes.com/api';
-
-// Define the type for the user
-type User = {
-  id: string;
-  walletAddress?: string;
-  name?: string;
-  email?: string;
-  role?: string;
-  verificationStatus?: string;
-  phoneNumber?: string;
-  createdAt?: string;
-  // Add other user properties as needed
-};
-
-interface AuthData {
-  token: string;
-  user: User;
+interface User {
+  address: string;
+  chainId: number;
 }
 
-interface ApiResponse<T> {
-  success: boolean;
-  message: string;
-  data: T;
-}
-
-type LoginResponse = ApiResponse<AuthData>;
-
-// Define the type for the auth context
-type AuthContextType = {
+interface AuthContextType {
   user: User | null;
+  isAuthenticated: boolean;
   loading: boolean;
-  error: string | null;
-  setError: (error: string | null) => void;
-  role: string;
-  register: (userData: {
-    walletAddress: string;
-    name: string;
-    email: string;
-    role?: string;
-  }) => Promise<LoginResponse>;
-  verifyEmail: (verificationData: {
-    email: string;
-    otp: string;
-  }) => Promise<LoginResponse>;
-  resendOtp: (email: string) => Promise<ApiResponse<{ message: string }>>;
-  login: (credentials: { walletAddress: string }) => Promise<LoginResponse>;
-};
-
-const AuthContext = createContext<AuthContextType | null>(null);
-
-interface AuthError {
-  response?: {
-    data?: {
-      message?: string;
-    };
-  };
-  message?: string;
+  login: () => Promise<void>;
+  logout: () => void;
 }
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [role, setRole] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
-  // Initialize axios with token if it exists
+  // Check for existing session on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      if (token) {
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    const checkSession = () => {
+      if (typeof window !== 'undefined') {
+        const storedUser = localStorage.getItem('strata_user');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        }
+        setLoading(false);
       }
-    }
+    };
+    checkSession();
   }, []);
 
-  // Check for existing token on initial load (client-side only)
-  useEffect(() => {
+  const login = async () => {
+    setLoading(true);
+    try {
+      // Mock Web3 Login - Replace with Wagmi/Ethers logic later
+      // In a real app, this would trigger wallet connection
+      const mockUser = {
+        address: '0x71C...9A23',
+        chainId: 8453, // Base
+      };
+      
+      setUser(mockUser);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('strata_user', JSON.stringify(mockUser));
+      }
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Login failed', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = () => {
+    setUser(null);
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      const storedRole = localStorage.getItem('role');
-
-      if (token && storedRole) {
-        setRole(storedRole);
-      }
+      localStorage.removeItem('strata_user');
     }
-  }, []);
-
-  // Login user
-  const login = async (credentials: { walletAddress: string }): Promise<LoginResponse> => {
-    setLoading(true);
-    try {
-      const response = await axios.post<LoginResponse>(`${API_URL}/auth/login`, credentials);
-      const loginResponse = response.data;
-
-      if (!loginResponse.success || !loginResponse.data) {
-        console.error('Invalid response format:', loginResponse);
-        throw new Error('Invalid response format: missing success or data');
-      }
-
-      const { token, user: userData } = loginResponse.data;
-
-      if (!token || !userData) {
-        console.error('Invalid response format:', loginResponse);
-        throw new Error('Invalid response format: missing token or user data');
-      }
-
-      // Store auth data
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', token);
-        localStorage.setItem('role', userData.role || 'user');
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      }
-
-      setUser(userData);
-      setRole(userData.role || 'user');
-      setError(null);
-      
-      return loginResponse;
-    } catch (error: unknown) {
-      const err = error as AuthError;
-      console.error('Login error:', err);
-      console.error('Login error response:', err.response);
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('role');
-        delete axios.defaults.headers.common['Authorization'];
-      }
-      setError(err.response?.data?.message || err.message || 'Authentication failed');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Register user
-  const register = async (userData: {
-    walletAddress: string;
-    name: string;
-    email: string;
-    role?: string;
-  }): Promise<LoginResponse> => {
-    setLoading(true);
-    try {
-      const response = await axios.post<LoginResponse>(`${API_URL}/auth/register`, {
-        walletAddress: userData.walletAddress,
-        name: userData.name,
-        email: userData.email,
-        role: userData.role || 'user'
-      });
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('registrationEmail', userData.email);
-        localStorage.setItem('userRole', userData.role || 'user');
-      }
-
-      setError(null);
-      return response.data;
-    } catch (error: unknown) {
-      const err = error as AuthError;
-      setError(err.response?.data?.message || err.message || 'Registration failed');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Verify email with OTP
-  const verifyEmail = async (verificationData: {
-    email: string;
-    otp: string;
-  }): Promise<LoginResponse> => {
-    setLoading(true);
-    try {
-      const response = await axios.post<LoginResponse>(
-        `${API_URL}/auth/verify-email`,
-        verificationData
-      );
-      
-      const authData = response.data.data;
-
-      if (!authData) {
-        throw new Error('Invalid response format: auth data is undefined');
-      }
-
-      const { token, user: userData } = authData;
-
-      if (!token || !userData) {
-        throw new Error('Invalid response format: missing token or user data');
-      }
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', token);
-        const userRole = userData.role || localStorage.getItem('userRole') || 'user';
-        localStorage.setItem('role', userRole);
-        
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
-        localStorage.removeItem('registrationEmail');
-        localStorage.removeItem('userRole');
-      }
-
-      setUser(userData);
-      setRole(userData.role || 'user');
-      setError(null);
-
-      return response.data;
-    } catch (error: unknown) {
-      const err = error as AuthError;
-      setError(err.response?.data?.message || err.message || 'Verification failed');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Resend OTP
-  const resendOtp = async (email: string): Promise<ApiResponse<{ message: string }>> => {
-    setLoading(true);
-    try {
-      const response = await axios.post<ApiResponse<{ message: string }>>(`${API_URL}/auth/resend-otp`, { email });
-      setError(null);
-      return response.data;
-    } catch (error: unknown) {
-      const err = error as AuthError;
-      setError(err.response?.data?.message || err.message || 'Failed to resend OTP');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+    router.push('/');
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        error,
-        setError,
-        role,
-        register,
-        verifyEmail,
-        resendOtp,
-        login,
-      }}
-    >
+    <AuthContext.Provider value={{ 
+      user, 
+      isAuthenticated: !!user, 
+      loading, 
+      login, 
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-export const useAuth = () => {
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === null) {
+  if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-};
+}
