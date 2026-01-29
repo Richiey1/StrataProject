@@ -6,6 +6,7 @@ import { Abi } from 'viem';
 import StrataForgeFactoryABI from '../../../app/components/ABIs/StrataForgeFactoryABI.json';
 import StrataForgeMerkleDistributorABI from '../../../app/components/ABIs/StrataForgeMerkleDistributorABI.json';
 import TraderDashboardLayout from './TraderDashboardLayout';
+import QuickSwap from './QuickSwap';
 import Link from 'next/link';
 
 // SVG Icons for Token Types
@@ -331,13 +332,38 @@ const TokenTraderDashboard = () => {
           <line x1="20" y1="20" x2="60" y2="15" stroke="rgba(147, 51, 234, 0.06)" strokeWidth="1" />
           <line x1="60" y1="15" x2="100" y2="25" stroke="rgba(59, 130, 246, 0.06)" strokeWidth="1" />
           <line x1="20" y1="20" x2="40" y2="50" stroke="rgba(147, 51, 234, 0.06)" strokeWidth="1" />
-          <line x1="60" y1="15" x2="80" y2="55" stroke="rgba(59, 130, 246, 0.06)" strokeWidth="1" />
+          <line x1="60" y1="15" x2="80" y2="55" stroke="rgba(147, 51, 234, 0.06)" strokeWidth="1" />
           <line x1="40" y1="50" x2="80" y2="55" stroke="rgba(147, 51, 234, 0.06)" strokeWidth="1" />
         </svg>
       </div>
       <div className="absolute top-10 right-1/3 w-64 h-64 bg-gradient-to-br from-purple-600/3 to-blue-600/20 rounded-full blur-3xl"></div>
       <div className="absolute bottom-20 left-1/4 w-80 h-80 bg-gradient-to-tr from-blue-600/3 to-transparent rounded-full blur-3xl"></div>
       <div className="absolute top-1/2 right-10 w-48 h-48 bg-gradient-to-bl from-cyan-500/2 to-transparent rounded-full blur-2xl"></div>
+    </div>
+  );
+
+  const PortfolioSummary = () => (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 relative z-10">
+      <div className="bg-white/[0.02] backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+        <p className="text-gray-400 text-sm font-medium mb-1">Total Balance</p>
+        <h3 className="text-3xl font-bold text-white">$1,245.80</h3>
+        <p className="text-green-400 text-xs mt-2 flex items-center">
+          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          </svg>
+          +4.2% today
+        </p>
+      </div>
+      <div className="bg-white/[0.02] backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+        <p className="text-gray-400 text-sm font-medium mb-1">Active Positions</p>
+        <h3 className="text-3xl font-bold text-white">4 Tokens</h3>
+        <p className="text-gray-500 text-xs mt-2">Across 2 networks</p>
+      </div>
+      <div className="bg-white/[0.02] backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+        <p className="text-gray-400 text-sm font-medium mb-1">Unclaimed Airdrops</p>
+        <h3 className="text-3xl font-bold text-purple-400">{airdrops.filter(a => a.isEligible).length} Available</h3>
+        <p className="text-purple-300/60 text-xs mt-2">Potential Value: ~$45.00</p>
+      </div>
     </div>
   );
 
@@ -361,17 +387,16 @@ const TokenTraderDashboard = () => {
     const label = typeLabels[token.type] || 'ERC-20';
 
     const isExpanded = expandedTokenId === token.id;
-    const [copiedAddress, setCopiedAddress] = useState<string | null>(null); // Added: Track copied address
+    const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
     const toggleDetails = () => {
       setExpandedTokenId(isExpanded ? null : token.id);
     };
 
-    // Added: Copy address function
     const copyToClipboard = (address: string, type: string) => {
       navigator.clipboard.writeText(address).then(() => {
         setCopiedAddress(type);
-        setTimeout(() => setCopiedAddress(null), 2000); // Reset after 2 seconds
+        setTimeout(() => setCopiedAddress(null), 2000);
       }).catch(() => {
         console.error(`Failed to copy ${type} address`);
       });
@@ -456,7 +481,7 @@ const TokenTraderDashboard = () => {
             </div>
           </div>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 mt-4">
           <button
             onClick={toggleDetails}
             className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white text-sm font-medium rounded-lg transition-all duration-200"
@@ -528,7 +553,7 @@ const TokenTraderDashboard = () => {
     </div>
   );
 
-const WalletConnection = () => (
+  const WalletConnection = () => (
     <div className="min-h-screen bg-[#1A0D23] flex items-center justify-center p-4 relative">
       <BackgroundShapes />
       <div className="bg-[#1E1425]/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-purple-500/20 p-8 text-center relative z-10">
@@ -571,61 +596,55 @@ const WalletConnection = () => (
               'radial-gradient(50% 206.8% at 50% 50%, rgba(10, 88, 116, 0.7) 0%, rgba(32, 23, 38, 0.7) 56.91%)',
           }}
         >
-          <h1 className="font-poppins font-semibold text-3xl md:text-4xl leading-[170%] mb-2">
+          <h1 className="font-poppins font-semibold text-3xl md:text-4xl leading-[170%] mb-2 text-white">
             Welcome back, {userName} <span className="text-yellow-400">👋</span>
           </h1>
-          <p className="font-vietnam font-normal text-base leading-[170%] tracking-[1%] text-[hsl(var(--foreground)/0.7)]">
+          <p className="font-vietnam font-normal text-base leading-[170%] tracking-[1%] text-white/70">
             Discover tokens, claim airdrops, and trade on the StrataForge marketplace
           </p>
         </div>
 
-        {error && (
-          <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center space-x-3 relative z-10">
-            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 0010-18 0 9 9 0 0018 0z"
-              />
-            </svg>
-            <p className="text-red-300 font-medium">{error}</p>
-          </div>
-        )}
+        <PortfolioSummary />
 
-        <div className="mb-12 relative z-10">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-            <h2 className="text-2xl font-bold text-white">Discover Tokens</h2>
-            <Link
-              href="/dashboard/marketplace"
-              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 font-medium text-sm"
-            >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5m0 0l-5 5m5-5H6" />
-              </svg>
-              Visit Marketplace
-            </Link>
-          </div>
-          {tokens.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
-              {tokens.map((token) => (
-                <TokenCard key={token.id} token={token} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-16 bg-white/[0.02] rounded-xl border border-white/10">
-              <div className="mb-4">
-                <TokenPlaceholderIcon />
-              </div>
-              <p className="text-gray-400 text-lg mb-6">No tokens available to discover yet</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12 relative z-10">
+          <div className="lg:col-span-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+              <h2 className="text-2xl font-bold text-white">Discover Tokens</h2>
               <Link
                 href="/dashboard/marketplace"
-                className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 font-medium"
+                className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 font-medium text-sm"
               >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5m0 0l-5 5m5-5H6" />
+                </svg>
                 Visit Marketplace
               </Link>
             </div>
-          )}
+            {tokens.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                {tokens.map((token) => (
+                  <TokenCard key={token.id} token={token} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 bg-white/[0.02] rounded-xl border border-white/10">
+                <div className="mb-4">
+                  <TokenPlaceholderIcon />
+                </div>
+                <p className="text-gray-400 text-lg mb-6">No tokens available to discover yet</p>
+                <Link
+                  href="/dashboard/marketplace"
+                  className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg transition-all duration-200 font-medium"
+                >
+                  Visit Marketplace
+                </Link>
+              </div>
+            )}
+          </div>
+          
+          <div className="lg:col-span-1">
+             <QuickSwap />
+          </div>
         </div>
 
         <div className="mb-12 relative z-10">
