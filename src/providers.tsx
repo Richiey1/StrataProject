@@ -5,6 +5,10 @@ import { WagmiConfig } from 'wagmi';
 import { config } from './lib/wagmi-config';
 
 import { WalletProvider } from './contexts/WalletContext';
+import { ApiProvider } from './contexts/ApiContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { AdminProvider } from './contexts/AdminContext';
+
 interface ProvidersProps {
   children: ReactNode;
 }
@@ -12,7 +16,15 @@ interface ProvidersProps {
 export function Providers({ children }: ProvidersProps) {
   return (
     <WagmiConfig config={config}>
-      <WalletProvider>{children}</WalletProvider>
+      <WalletProvider>
+        <ApiProvider>
+          <AuthProvider>
+            <AdminProvider>
+              {children}
+            </AdminProvider>
+          </AuthProvider>
+        </ApiProvider>
+      </WalletProvider>
     </WagmiConfig>
   );
 }
