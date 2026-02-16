@@ -5,6 +5,7 @@ import StatsSection from './components/home/StatsSection';
 import TokenTypesSlider from './components/ui/TokenTypesSlider';
 import PlatformFeatures from '././components/home/PlatformFeatures';
 import WhyUs from './components/home/WhyUs';
+import Testimonials from './components/home/Testimonials';
 import HowItWorks from './components/home/HowItWorks';
 import Pricing from './components/home/Pricing';
 import CallToAction from './components/ui/CallToAction';
@@ -23,6 +24,7 @@ export default function Home() {
       <TokenTypesSlider />
       <PlatformFeatures />
       <WhyUs />
+      <Testimonials />
       <HowItWorks />
       <Pricing />
       <CallToAction />
